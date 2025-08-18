@@ -22,23 +22,24 @@ public sealed class SimpleGainEditor : IAudioPluginView
         _model = model;
 
         _window = new UI.Win32.FixedGainWindow(
-            width: BaseWidth,
-            height: BaseHeight,
-            minDb: -60.0,
-            maxDb: 12.0,
-            getNormalized: () => (float)_model.Gain.NormalizedValue,
-            //setNormalized: v =>
-            //{
-            //    var nv = (float)Math.Clamp(v, 0.0, 1.0);
-            //    var p = _model.Gain;
-            //    _controller.BeginEditParameter(p);
-            //    p.NormalizedValue = nv;              // triggers OnParameterValueChanged (UI-originated)
-            //    _controller.EndEditParameter();
-            //}
-            beginEdit: () => _controller.BeginEditParameter(_model.Gain),
-            performEdit: v => _model.Gain.NormalizedValue = (float)Math.Clamp(v, 0, 1),
-            endEdit: () => _controller.EndEditParameter()
-        );
+             width: BaseWidth,
+             height: BaseHeight,
+             minDb: -60.0,
+             maxDb: 12.0,
+             getNormalized: () => (float)_model.Gain.NormalizedValue,
+             beginEdit: () =>
+             {
+                 _controller.BeginEditParameter(_model.Gain);
+             },
+             performEdit: nv =>
+             {
+                 // Cambia el parámetro: esto dispara OnParameterValueChanged en el controller
+                 _model.Gain.NormalizedValue = (float)Math.Clamp(nv, 0.0, 1.0);
+             },
+             endEdit: () =>
+             {
+                 _controller.EndEditParameter();
+             });
     }
 
     // --- IAudioPluginView (new API) ---

@@ -59,7 +59,7 @@ internal sealed class FixedGainWindow
         _knob = new AnalogKnobWindow(
             getNormalized: () => _getNormalized(),
             beginEdit: () => _beginEdit(),
-            performEdit: v => _performEdit(v),
+            performEdit: v => { _performEdit(v); UpdateLabelTextOnly(); },
             endEdit: () => _endEdit()
         );
     }
@@ -123,6 +123,13 @@ internal sealed class FixedGainWindow
     {
         // De momento, no manejamos nada especial en el contenedor
         return CallWindowProc(_origWndProc, hWnd, msg, wParam, lParam);
+    }
+
+    private void UpdateLabelTextOnly()
+    {
+        var norm = _getNormalized();
+        var db = _minDb + norm * (_maxDb - _minDb);
+        SetWindowText(_label, $"Gain: {db:0.0} dB");
     }
 
     // ---- P/Invoke mínima ----
