@@ -4,44 +4,29 @@ using System.Runtime.InteropServices;
 namespace NPlug.SimpleGain.UI.Win32;
 
 /// <summary>
-/// Contenedor Win32 con una etiqueta ("Gain: X dB") y un knob analógico (AOT-friendly).
+/// Win32 host container for the knob view. No label, no margins: the child knob
+/// is centered and sized to the largest square that fits the client area.
+/// Handles subclassing, flicker-free background, and child layout on resize.
 /// </summary>
 internal sealed class FixedGainWindow
 {
-    // ---- Layout ----
+    // ---- Win32 styles / messages -------------------------------------------
+
     private const string WC_STATIC = "STATIC";
     private const int WS_CHILD = 0x40000000;
     private const int WS_VISIBLE = 0x10000000;
     private const int WS_CLIPCHILDREN = 0x02000000;
 
-    private const int LabelPadding = 8;
-    private const int LabelHeight = 24;
-    private const int GapBelowLabel = 8;
-
-    // medidas base (en DIP)
-    private const int BaseWidth = 592;
-    private const int BaseHeight = 560;
-    private const int KnobBaseX = 40;
-    private const int KnobBaseSize = 512;
-    private const int LabelBasePad = 8;
-    private const int LabelBaseH = 24;
-    private const int GapBase = 8;
-
-
-    // Coloca el knob bajo la etiqueta
-    private const int KnobX = 40;
-    private const int KnobSize = 512;
-    private const int MinWidth = KnobX + KnobSize + KnobX; // 40 + 512 + 40 = 592
-    private const int MinHeight = LabelPadding + LabelHeight + GapBelowLabel + KnobSize + LabelPadding;
-    // 8 + 24 + 8 + 512 + 8 = 560
-
     private const int WM_ERASEBKGND = 0x0014;
+    private const int WM_SIZE = 0x0005;
 
-    private int KnobY => LabelPadding + LabelHeight + GapBelowLabel;
+    private const int GWL_WNDPROC = -4;
 
-    // ---- Handles/estado ----
+    // ---- Handles / state ----------------------------------------------------
+
     private IntPtr _parent;
-    private IntPtr _hwnd;   // contenedor
+    private IntPtr _hwnd;     // container window
+    private IntPtr _origWndProc = IntPtr.Zero;
 
     private int _width;
     private int _height;
@@ -55,16 +40,22 @@ internal sealed class FixedGainWindow
     private readonly Action _endEdit;
 
     private readonly AnalogKnobWindow _knob;
+    private readonly WndProc _wndProcDelegate;
 
-    // ---- Ctor ----
+    // ---- Ctor ---------------------------------------------------------------
+
     public FixedGainWindow(
         int width, int height,
         double minDb, double maxDb,
         Func<float> getNormalized,
         Action beginEdit, Action<double> performEdit, Action endEdit)
     {
-        _width = width; _height = height;
-        _minDb = minDb; _maxDb = maxDb;
+        _width = width;
+        _height = height;
+
+        _minDb = minDb;
+        _maxDb = maxDb;
+
         _getNormalized = getNormalized;
         _beginEdit = beginEdit;
         _performEdit = performEdit;
@@ -77,53 +68,100 @@ internal sealed class FixedGainWindow
             beginEdit: () => _beginEdit(),
             performEdit: v => { _performEdit(v); _knob.Refresh(); },
             endEdit: () => _endEdit(),
-            minDb: _minDb, maxDb: _maxDb            // <-- nuevo
+            minDb: _minDb,
+            maxDb: _maxDb
         );
     }
 
-    string AssetsPath(params string[] parts)
-    => Path.Combine(AppContext.BaseDirectory, "Assets", Path.Combine(parts));
+    // ---- Public API ---------------------------------------------------------
 
-    // ---- API pública ----
+    /// <summary>
+    /// Creates the container as a child of <paramref name="parentHwnd"/> and attaches the knob view.
+    /// </summary>
     public bool AttachToParent(IntPtr parentHwnd)
     {
+        if (parentHwnd == IntPtr.Zero) return false;
         _parent = parentHwnd;
-        if (_parent == IntPtr.Zero) return false;
 
-        // Contenedor
-        _hwnd = CreateWindowEx(0, WC_STATIC, null, WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
-                               0, 0, _width, _height,
-                               _parent, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+        _hwnd = CreateWindowEx(
+            0, WC_STATIC, null,
+            WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
+            0, 0, _width, _height,
+            _parent, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+
         if (_hwnd == IntPtr.Zero) return false;
 
-        // Knob
-        _knob.Create(_hwnd, KnobX, KnobY, KnobSize, KnobSize);
+        // Subclass container (for WM_ERASEBKGND/WM_SIZE, etc.)
+        _origWndProc = SetWindowLongPtr(_hwnd, GWL_WNDPROC, Marshal.GetFunctionPointerForDelegate(_wndProcDelegate));
+
+        // Create knob child and load assets (embedded)
+        _knob.Create(_hwnd, 0, 0, _width, _height);
         try
         {
             _knob.LoadAssetsEmbedded();
         }
-        catch (Exception ex)
+        catch
         {
-           
+            // Intentionally swallow to avoid crashing host; the knob will simply paint empty
+            // (You can log here if you have a logging facility.)
         }
-        // Subclase del contenedor (por si luego quieres manejar mensajes)
-        _origWndProc = SetWindowLongPtr(_hwnd, GWL_WNDPROC, Marshal.GetFunctionPointerForDelegate(_wndProcDelegate));
 
+        LayoutKnob();
         return true;
     }
 
+    /// <summary>
+    /// Destroys the child windows and releases resources.
+    /// </summary>
     public void Destroy()
     {
         _knob.Destroy();
         _knob.DisposeAssets();
-        if (_hwnd != IntPtr.Zero) DestroyWindow(_hwnd);
-        _hwnd = IntPtr.Zero;
+
+        if (_hwnd != IntPtr.Zero)
+        {
+            // Restore original WndProc before destroying the window
+            if (_origWndProc != IntPtr.Zero)
+            {
+                SetWindowLongPtr(_hwnd, GWL_WNDPROC, _origWndProc);
+                _origWndProc = IntPtr.Zero;
+            }
+
+            DestroyWindow(_hwnd);
+            _hwnd = IntPtr.Zero;
+        }
+
+        _parent = IntPtr.Zero;
     }
 
+    /// <summary>
+    /// Sets container bounds; re-lays out the child knob as a centered square.
+    /// </summary>
     public void SetBounds(int x, int y, int width, int height)
     {
-        _width = width; _height = height;
-        MoveWindow(_hwnd, x, y, _width, _height, true);
+        _width = width;
+        _height = height;
+
+        if (_hwnd != IntPtr.Zero)
+        {
+            MoveWindow(_hwnd, x, y, _width, _height, true);
+            LayoutKnob();
+        }
+    }
+
+    /// <summary>
+    /// Requests a repaint of the knob (double-buffered inside the knob view).
+    /// </summary>
+    public void RefreshUI() => _knob.Refresh();
+
+    // ---- Layout -------------------------------------------------------------
+
+    /// <summary>
+    /// Centers the knob as the largest square that fits inside the container client area.
+    /// </summary>
+    private void LayoutKnob()
+    {
+        if (_hwnd == IntPtr.Zero) return;
 
         int D = Math.Min(_width, _height);
         int offX = (_width - D) / 2;
@@ -132,23 +170,35 @@ internal sealed class FixedGainWindow
         _knob.SetBounds(offX, offY, D, D);
     }
 
-    public void RefreshUI() => _knob.Refresh();
+    // ---- WndProc ------------------------------------------------------------
 
-
-    // ---- WndProc contenedor ----
-    private IntPtr _origWndProc = IntPtr.Zero;
-    private readonly WndProc _wndProcDelegate;
     private IntPtr CustomWndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
-        if (msg == WM_ERASEBKGND) return (IntPtr)1;
-        // De momento, no manejamos nada especial en el contenedor
+        switch (msg)
+        {
+            case WM_ERASEBKGND:
+                // Prevent background erase to avoid flicker (child draws everything)
+                return (IntPtr)1;
+
+            case WM_SIZE:
+                // Keep our cached size in sync even if host resizes us directly
+                int w = (int)(lParam.ToInt64() & 0xFFFF);
+                int h = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
+                if (w > 0 && h > 0)
+                {
+                    _width = w;
+                    _height = h;
+                    LayoutKnob();
+                }
+                break;
+        }
+
         return CallWindowProc(_origWndProc, hWnd, msg, wParam, lParam);
     }
 
-    // ---- P/Invoke mínima ----
-    private delegate IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+    // ---- P/Invoke -----------------------------------------------------------
 
-    private const int GWL_WNDPROC = -4;
+    private delegate IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr CreateWindowEx(
