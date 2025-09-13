@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using NPlug;
+using System.Runtime.InteropServices;
 
 namespace NPlug.SimpleGain;
 
@@ -33,7 +34,7 @@ public sealed class SimpleGainEditor : IAudioPluginView
              },
              performEdit: nv =>
              {
-                 // Cambia el par�metro: esto dispara OnParameterValueChanged en el controller
+                 // Cambia el parámetro: esto dispara OnParameterValueChanged en el controller
                  _model.Gain.NormalizedValue = (float)Math.Clamp(nv, 0.0, 1.0);
              },
              endEdit: () =>
@@ -53,9 +54,12 @@ public sealed class SimpleGainEditor : IAudioPluginView
 
         _window.AttachToParent(parent);
 
-        int w = (int)Math.Round(BaseWidth * _scale);
-        int h = (int)Math.Round(BaseHeight * _scale);
-        _window.SetBounds(0, 0, w, h);
+        _scale = DetermineInitialScale(parent);
+
+        var sz = Size;
+        _frame?.ResizeView(this, sz);
+
+        _window.SetBounds(0, 0, sz.Right, sz.Bottom);
         _window.RefreshLabel();
     }
 
@@ -91,7 +95,7 @@ public sealed class SimpleGainEditor : IAudioPluginView
 
     public void OnSize(ViewRectangle newSize)
     {
-        // Fixed aspect; just apply the host�s size (typically from scaling)
+        // Fixed aspect; just apply the host’s size (typically from scaling)
         int w = Math.Max(1, newSize.Right - newSize.Left);
         int h = Math.Max(1, newSize.Bottom - newSize.Top);
         _window.SetBounds(0, 0, w, h);
@@ -107,7 +111,7 @@ public sealed class SimpleGainEditor : IAudioPluginView
         _frame = frame;
     }
 
-    public bool CanResize() => false; // fixed-size editor
+    public bool CanResize() => true; // fixed-size editor
 
     public bool CheckSizeConstraint(ref ViewRectangle rect)
     {
@@ -149,4 +153,30 @@ public sealed class SimpleGainEditor : IAudioPluginView
 
         _window.RefreshLabel();
     }
+
+    private float DetermineInitialScale(nint parent)
+    {
+        try
+        {
+            GetProcessDpiAwareness(nint.Zero, out int awareness);
+            if (awareness == 0) // Unaware → compensar virtualización
+            {
+                int sys = GetDpiForSystem();
+                if (sys <= 0) sys = 96;
+                return 96f / sys; // ej: 96/144 = 0.666... (dibujas pequeño, Windows agranda)
+            }
+            else
+            {
+                int dpi = GetDpiForWindow(parent);
+                if (dpi <= 0) dpi = 96;
+                return dpi / 96f; // ej: 144/96 = 1.5
+            }
+        }
+        catch { return 1.0f; }
+    }
+
+    [DllImport("user32.dll")] static extern int GetDpiForWindow(nint hWnd);
+    [DllImport("user32.dll")] static extern int GetDpiForSystem(); // Win10+
+    [DllImport("shcore.dll")] static extern int GetProcessDpiAwareness(nint hprocess, out int value);
+
 }

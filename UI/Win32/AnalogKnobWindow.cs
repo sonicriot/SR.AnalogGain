@@ -21,6 +21,9 @@ internal sealed class AnalogKnobWindow
     private const int PTR_FRAMES = 73; // -60..+12 → 73 estados
     private const int PTR_STEPS = PTR_FRAMES - 1; // 72
 
+    private int _dpi = 96;
+    private float DpiScale => _dpi / 96f;
+
     // Estilos/Win32
     private const string WC_STATIC = "STATIC";
     private const int WS_CHILD = 0x40000000;
@@ -35,6 +38,7 @@ internal sealed class AnalogKnobWindow
     private const int WM_MOUSEWHEEL = 0x020A;
     private const int WM_LBUTTONDBLCLK = 0x0203;
     private const int WM_ERASEBKGND = 0x0014;
+    private const int WM_DPICHANGED = 0x02E0;
 
     private const int WHEEL_DELTA = 120;
 
@@ -103,6 +107,8 @@ internal sealed class AnalogKnobWindow
                                _x, _y, _w, _h, _parent, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
         if (_hwnd == IntPtr.Zero) return false;
 
+        _dpi = GetDpiForWindow(_hwnd);
+
         _origWndProc = SetWindowLongPtr(_hwnd, GWL_WNDPROC, Marshal.GetFunctionPointerForDelegate(_proc));
         InvalidateRect(_hwnd, IntPtr.Zero, true);
         return true;
@@ -152,6 +158,10 @@ internal sealed class AnalogKnobWindow
 
                             using (var gb = Graphics.FromImage(_backBuffer))
                             {
+                                float scale = gb.DpiX / 96f;
+                                int Ddip = 512;
+                                int Dpx = (int)Math.Round(Ddip * scale);
+
                                 gb.SmoothingMode = SmoothingMode.HighQuality;
                                 gb.InterpolationMode = InterpolationMode.HighQualityBicubic;
                                 gb.PixelOffsetMode = PixelOffsetMode.HighQuality;
@@ -162,8 +172,9 @@ internal sealed class AnalogKnobWindow
 
                                 if (_bg512 != null && _pointerSheet != null && _top512 != null)
                                 {
-                                    float s = Math.Min(_w / 512f, _h / 512f);
-                                    int D = (int)Math.Round(512 * s);
+                                    int D = Math.Min(Dpx, Math.Min(_w, _h));
+                                    float s = D / 512f;
+                                    
                                     int offX = (_w - D) / 2, offY = (_h - D) / 2;
 
                                     // fondo
@@ -182,6 +193,16 @@ internal sealed class AnalogKnobWindow
 
                                     // top
                                     gb.DrawImage(_top512, new Rectangle(offX, offY, D, D));
+
+                                    //// === Depuración visible (después del top) ===
+                                    //gb.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+                                    //float fontPx = 12f * (gb.DpiX / 96f);                // tamaño en px, no DIP
+                                    //using var f = new Font(FontFamily.GenericSansSerif, fontPx, FontStyle.Bold, GraphicsUnit.Pixel);
+                                    //var brush = Brushes.White;
+
+                                    //gb.DrawString($"w={_w} h={_h} dpi={gb.DpiX:0} scaleHost={scale:0.##}",
+                                    //              f, brush, offX + 8, offY + 8);
                                 }
                             }
 
@@ -254,9 +275,13 @@ internal sealed class AnalogKnobWindow
                         InvalidateRect(_hwnd, IntPtr.Zero, false);
                         return IntPtr.Zero;
                     }
-
                 case WM_ERASEBKGND:
                     return (IntPtr)1;
+                case WM_DPICHANGED:
+                    _dpi = (int)(wParam.ToInt64() & 0xFFFF);
+                    // re-layout si hace falta, invalidar sin borrar fondo:
+                    InvalidateRect(_hwnd, IntPtr.Zero, false);
+                    return (IntPtr)0;
             }
         }
         catch { /* proteger al host */ }
@@ -306,6 +331,7 @@ internal sealed class AnalogKnobWindow
     [DllImport("gdi32.dll")] private static extern bool LineTo(IntPtr hdc, int nXEnd, int nYEnd);
     [DllImport("gdi32.dll")] private static extern bool Arc(IntPtr hdc, int left, int top, int right, int bottom, int r1, int r2, int r3, int r4);
     [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr hObject);
+    [DllImport("user32.dll")] static extern int GetDpiForWindow(IntPtr hWnd);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct PAINTSTRUCT

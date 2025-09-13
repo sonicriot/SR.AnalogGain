@@ -18,6 +18,16 @@ internal sealed class FixedGainWindow
     private const int LabelHeight = 24;
     private const int GapBelowLabel = 8;
 
+    // medidas base (en DIP)
+    private const int BaseWidth = 592;
+    private const int BaseHeight = 560;
+    private const int KnobBaseX = 40;
+    private const int KnobBaseSize = 512;
+    private const int LabelBasePad = 8;
+    private const int LabelBaseH = 24;
+    private const int GapBase = 8;
+
+
     // Coloca el knob bajo la etiqueta
     private const int KnobX = 40;
     private const int KnobSize = 512;
@@ -120,11 +130,23 @@ internal sealed class FixedGainWindow
 
     public void SetBounds(int x, int y, int width, int height)
     {
-        _width = Math.Max(width, MinWidth);
-        _height = Math.Max(height, MinHeight);
+        _width = width; _height = height;
         MoveWindow(_hwnd, x, y, _width, _height, true);
-        MoveWindow(_label, LabelPadding, LabelPadding, _width - 2 * LabelPadding, LabelHeight, true);
-        _knob.SetBounds(KnobX, KnobY, KnobSize, KnobSize);
+
+        // factor de escala respecto a tu diseño base
+        double s = Math.Min((double)width / BaseWidth, (double)height / BaseHeight);
+
+        int labelPad = (int)Math.Round(LabelBasePad * s);
+        int labelH = (int)Math.Round(LabelBaseH * s);
+        int gap = (int)Math.Round(GapBase * s);
+
+        int knobX = (int)Math.Round(KnobBaseX * s);
+        int knobSize = (int)Math.Round(KnobBaseSize * s);
+        int knobY = labelPad + labelH + gap;
+
+        // recoloca/escala la etiqueta y el knob window
+        MoveWindow(_label, labelPad, labelPad, _width - 2 * labelPad, labelH, true);
+        _knob.SetBounds(knobX, knobY, knobSize, knobSize);
     }
 
     public void RefreshLabel()
