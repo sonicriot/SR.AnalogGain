@@ -42,7 +42,6 @@ internal sealed class FixedGainWindow
     // ---- Handles/estado ----
     private IntPtr _parent;
     private IntPtr _hwnd;   // contenedor
-    private IntPtr _label;  // "Gain: X dB"
 
     private int _width;
     private int _height;
@@ -76,8 +75,9 @@ internal sealed class FixedGainWindow
         _knob = new AnalogKnobWindow(
             getNormalized: () => _getNormalized(),
             beginEdit: () => _beginEdit(),
-            performEdit: v => { _performEdit(v); UpdateLabelTextOnly(); },
-            endEdit: () => _endEdit()
+            performEdit: v => { _performEdit(v); _knob.Refresh(); },
+            endEdit: () => _endEdit(),
+            minDb: _minDb, maxDb: _maxDb            // <-- nuevo
         );
     }
 
@@ -96,12 +96,6 @@ internal sealed class FixedGainWindow
                                _parent, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
         if (_hwnd == IntPtr.Zero) return false;
 
-        // Etiqueta
-        _label = CreateWindowEx(0, WC_STATIC, "",
-                                WS_CHILD | WS_VISIBLE,
-                                LabelPadding, LabelPadding, _width - 2 * LabelPadding, LabelHeight,
-                                _hwnd, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-
         // Knob
         _knob.Create(_hwnd, KnobX, KnobY, KnobSize, KnobSize);
         try
@@ -110,12 +104,11 @@ internal sealed class FixedGainWindow
         }
         catch (Exception ex)
         {
-            SetWindowText(_label, "Assets error: " + ex.Message);
+           
         }
         // Subclase del contenedor (por si luego quieres manejar mensajes)
         _origWndProc = SetWindowLongPtr(_hwnd, GWL_WNDPROC, Marshal.GetFunctionPointerForDelegate(_wndProcDelegate));
 
-        RefreshLabel();
         return true;
     }
 
@@ -123,9 +116,8 @@ internal sealed class FixedGainWindow
     {
         _knob.Destroy();
         _knob.DisposeAssets();
-        if (_label != IntPtr.Zero) DestroyWindow(_label);
         if (_hwnd != IntPtr.Zero) DestroyWindow(_hwnd);
-        _label = _hwnd = IntPtr.Zero;
+        _hwnd = IntPtr.Zero;
     }
 
     public void SetBounds(int x, int y, int width, int height)
@@ -133,29 +125,15 @@ internal sealed class FixedGainWindow
         _width = width; _height = height;
         MoveWindow(_hwnd, x, y, _width, _height, true);
 
-        // factor de escala respecto a tu diseño base
-        double s = Math.Min((double)width / BaseWidth, (double)height / BaseHeight);
+        int D = Math.Min(_width, _height);
+        int offX = (_width - D) / 2;
+        int offY = (_height - D) / 2;
 
-        int labelPad = (int)Math.Round(LabelBasePad * s);
-        int labelH = (int)Math.Round(LabelBaseH * s);
-        int gap = (int)Math.Round(GapBase * s);
-
-        int knobX = (int)Math.Round(KnobBaseX * s);
-        int knobSize = (int)Math.Round(KnobBaseSize * s);
-        int knobY = labelPad + labelH + gap;
-
-        // recoloca/escala la etiqueta y el knob window
-        MoveWindow(_label, labelPad, labelPad, _width - 2 * labelPad, labelH, true);
-        _knob.SetBounds(knobX, knobY, knobSize, knobSize);
+        _knob.SetBounds(offX, offY, D, D);
     }
 
-    public void RefreshLabel()
-    {
-        var norm = _getNormalized();
-        var db = _minDb + norm * (_maxDb - _minDb);
-        SetWindowText(_label, $"Gain: {db:0.0} dB");
-        _knob.Refresh();
-    }
+    public void RefreshUI() => _knob.Refresh();
+
 
     // ---- WndProc contenedor ----
     private IntPtr _origWndProc = IntPtr.Zero;
@@ -165,13 +143,6 @@ internal sealed class FixedGainWindow
         if (msg == WM_ERASEBKGND) return (IntPtr)1;
         // De momento, no manejamos nada especial en el contenedor
         return CallWindowProc(_origWndProc, hWnd, msg, wParam, lParam);
-    }
-
-    private void UpdateLabelTextOnly()
-    {
-        var norm = _getNormalized();
-        var db = _minDb + norm * (_maxDb - _minDb);
-        SetWindowText(_label, $"Gain: {db:0.0} dB");
     }
 
     // ---- P/Invoke mínima ----
@@ -196,7 +167,4 @@ internal sealed class FixedGainWindow
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr CallWindowProc(IntPtr lpPrevWndFunc, IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern bool SetWindowText(IntPtr hWnd, string lpString);
 }

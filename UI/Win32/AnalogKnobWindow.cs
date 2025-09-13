@@ -14,6 +14,9 @@ internal sealed class AnalogKnobWindow
     private Bitmap? _backBuffer;
     private int _bufW, _bufH;
 
+    private readonly double _minDb;
+    private readonly double _maxDb;
+
     // --- Constantes de assets originales ---
     private const int BG_PX = 512;
     private const int TOP_PX = 512;
@@ -70,12 +73,15 @@ internal sealed class AnalogKnobWindow
     private IntPtr _origWndProc = IntPtr.Zero;
     private readonly WndProc _proc;
 
-    public AnalogKnobWindow(Func<float> getNormalized, Action beginEdit, Action<double> performEdit, Action endEdit)
+    public AnalogKnobWindow(Func<float> getNormalized, Action beginEdit, Action<double> performEdit, Action endEdit,
+                        double minDb, double maxDb)
     {
         _getNormalized = getNormalized;
         _beginEdit = beginEdit;
         _performEdit = performEdit;
         _endEdit = endEdit;
+        _minDb = minDb;
+        _maxDb = maxDb;
 
         _proc = WndProcImpl;
     }
@@ -194,15 +200,21 @@ internal sealed class AnalogKnobWindow
                                     // top
                                     gb.DrawImage(_top512, new Rectangle(offX, offY, D, D));
 
-                                    //// === Depuración visible (después del top) ===
-                                    //gb.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+                                    // --- Overlay de dB (estilo traza) ---
+                                    double db = _minDb + norm * (_maxDb - _minDb);
 
-                                    //float fontPx = 12f * (gb.DpiX / 96f);                // tamaño en px, no DIP
-                                    //using var f = new Font(FontFamily.GenericSansSerif, fontPx, FontStyle.Bold, GraphicsUnit.Pixel);
-                                    //var brush = Brushes.White;
+                                    string txt = $"{db:+0.0;-0.0;0.0} dB"; // +0.0 para positivos
 
-                                    //gb.DrawString($"w={_w} h={_h} dpi={gb.DpiX:0} scaleHost={scale:0.##}",
-                                    //              f, brush, offX + 8, offY + 8);
+                                    gb.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+                                    float fontPx = 16f * (gb.DpiX / 96f); // un poco más grande que la traza
+                                    using var f = new Font(FontFamily.GenericSansSerif, fontPx, FontStyle.Bold, GraphicsUnit.Pixel);
+
+                                    // sombreado para legibilidad
+                                    var pt = new PointF(offX + 12, offY + 12);
+                                    using (var shadow = new SolidBrush(Color.FromArgb(140, 0, 0, 0)))
+                                        gb.DrawString(txt, f, shadow, new PointF(pt.X + 1, pt.Y + 1));
+
+                                    gb.DrawString(txt, f, Brushes.White, pt);
                                 }
                             }
 

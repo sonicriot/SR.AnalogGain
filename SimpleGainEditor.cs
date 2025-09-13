@@ -15,8 +15,8 @@ public sealed class SimpleGainEditor : IAudioPluginView
 
     // Base logical size (before scaling)
     private const float UserUiScale = 0.50f;
-    private const int BaseWidth = 592;
-    private const int BaseHeight = 560;
+    private const int BaseWidth = 512;
+    private const int BaseHeight = 512;
 
     public SimpleGainEditor(SimpleGainController controller, SimpleGainModel model)
     {
@@ -61,7 +61,7 @@ public sealed class SimpleGainEditor : IAudioPluginView
         _frame?.ResizeView(this, sz);
 
         _window.SetBounds(0, 0, sz.Right, sz.Bottom);
-        _window.RefreshLabel();
+        _window.RefreshUI();
     }
 
     public void Removed() => _window.Destroy();
@@ -152,7 +152,7 @@ public sealed class SimpleGainEditor : IAudioPluginView
         p.NormalizedValue = newNorm;
         _controller.EndEditParameter();
 
-        _window.RefreshLabel();
+        _window.RefreshUI();
     }
 
     private float DetermineInitialScale(nint parent)
