@@ -14,6 +14,7 @@ public sealed class SimpleGainEditor : IAudioPluginView
     private float _scale = 1.0f; // DPI/content scale
 
     // Base logical size (before scaling)
+    private const float UserUiScale = 0.50f;
     private const int BaseWidth = 592;
     private const int BaseHeight = 560;
 
@@ -54,7 +55,7 @@ public sealed class SimpleGainEditor : IAudioPluginView
 
         _window.AttachToParent(parent);
 
-        _scale = DetermineInitialScale(parent);
+        _scale = DetermineInitialScale(parent) * UserUiScale;
 
         var sz = Size;
         _frame?.ResizeView(this, sz);
@@ -124,7 +125,7 @@ public sealed class SimpleGainEditor : IAudioPluginView
 
     public void SetContentScaleFactor(float factor)
     {
-        _scale = Math.Clamp(factor, 0.5f, 4.0f);
+        _scale = Math.Clamp(factor * UserUiScale, 0.5f, 4.0f);
         // ask host to resize us to the new scaled size
         _frame?.ResizeView(this, Size);
     }
