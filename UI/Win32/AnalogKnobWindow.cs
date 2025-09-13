@@ -1,10 +1,26 @@
 ﻿using System;
 using System.Runtime.InteropServices;
-
+using System.Drawing;
+using System.Drawing.Drawing2D;
 namespace NPlug.SimpleGain.UI.Win32;
 
 internal sealed class AnalogKnobWindow
 {
+    // --- Assets ---
+    private Bitmap? _bg512;
+    private Bitmap? _pointerSheet; // 73 frames horizontales (300x300 c/u)
+    private Bitmap? _top512;
+
+    private Bitmap? _backBuffer;
+    private int _bufW, _bufH;
+
+    // --- Constantes de assets originales ---
+    private const int BG_PX = 512;
+    private const int TOP_PX = 512;
+    private const int PTR_FRAME_PX = 300;
+    private const int PTR_FRAMES = 73; // -60..+12 → 73 estados
+    private const int PTR_STEPS = PTR_FRAMES - 1; // 72
+
     // Estilos/Win32
     private const string WC_STATIC = "STATIC";
     private const int WS_CHILD = 0x40000000;
@@ -18,6 +34,7 @@ internal sealed class AnalogKnobWindow
     private const int WM_MOUSEMOVE = 0x0200;
     private const int WM_MOUSEWHEEL = 0x020A;
     private const int WM_LBUTTONDBLCLK = 0x0203;
+    private const int WM_ERASEBKGND = 0x0014;
 
     private const int WHEEL_DELTA = 120;
 
@@ -59,6 +76,24 @@ internal sealed class AnalogKnobWindow
         _proc = WndProcImpl;
     }
 
+    // Para liberar
+    public void DisposeAssets()
+    {
+        _bg512?.Dispose(); _bg512 = null;
+        _pointerSheet?.Dispose(); _pointerSheet = null;
+        _top512?.Dispose(); _top512 = null;
+    }
+
+    public void LoadAssetsEmbedded()
+    {
+        DisposeAssets();
+        var asm = typeof(AnalogKnobWindow).Assembly;
+
+        _bg512 = Embedded.LoadBitmap(asm, "KnobBg512.png");
+        _pointerSheet = Embedded.LoadBitmap(asm, "knob_pointer_sprite_300x300_x73_clockwise263.png");
+        _top512 = Embedded.LoadBitmap(asm, "KnobTop512.png");
+    }
+
     public bool Create(IntPtr parent, int x, int y, int w, int h)
     {
         _parent = parent;
@@ -83,9 +118,17 @@ internal sealed class AnalogKnobWindow
     {
         _x = x; _y = y; _w = w; _h = h;
         MoveWindow(_hwnd, _x, _y, _w, _h, true);
+
+        // recreate buffer si cambia el tamaño
+        if (_w != _bufW || _h != _bufH)
+        {
+            _backBuffer?.Dispose();
+            _backBuffer = new Bitmap(Math.Max(1, _w), Math.Max(1, _h), System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            _bufW = _w; _bufH = _h;
+        }
     }
 
-    public void Refresh() => InvalidateRect(_hwnd, IntPtr.Zero, true);
+    public void Refresh() => InvalidateRect(_hwnd, IntPtr.Zero, false);
 
     // ---- Pintado / interacción ----
     private IntPtr WndProcImpl(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
@@ -100,56 +143,58 @@ internal sealed class AnalogKnobWindow
                         var hdc = BeginPaint(_hwnd, out ps);
                         try
                         {
-                            // Fondo
-                            var bg = CreateSolidBrush(0x00F0F0F0); var oldBrush = SelectObject(hdc, bg);
-                            Rectangle(hdc, 0, 0, _w, _h);
-
-                            // Cara del knob
-                            var face = CreateSolidBrush(0x00E0E0E0);
-                            SelectObject(hdc, face);
-                            Ellipse(hdc, CX - Radius, CY - Radius, CX + Radius, CY + Radius);
-
-                            // Borde
-                            var penBorder = CreatePen(0, 2, 0x00404040);
-                            var oldPen = SelectObject(hdc, penBorder);
-                            Arc(hdc, CX - Radius, CY - Radius, CX + Radius, CY + Radius, 0, 0, 0, 0);
-
-                            // Marcas (ticks)
-                            var penTick = CreatePen(0, 1, 0x00606060);
-                            SelectObject(hdc, penTick);
-                            const int ticks = 11; // de -135 a +135 (cada 27°)
-                            for (int i = 0; i < ticks; i++)
+                            if (_backBuffer == null || _backBuffer.Width != _w || _backBuffer.Height != _h)
                             {
-                                double tt = (double)i / (ticks - 1); // 0..1
-                                double ang = AngleMin + tt * (AngleMax - AngleMin);
-                                int x1 = CX + (int)Math.Round((Radius - 6) * Math.Cos(ang));
-                                int y1 = CY + (int)Math.Round((Radius - 6) * Math.Sin(ang));
-                                int x2 = CX + (int)Math.Round((Radius - 1) * Math.Cos(ang));
-                                int y2 = CY + (int)Math.Round((Radius - 1) * Math.Sin(ang));
-                                MoveToEx(hdc, x1, y1, IntPtr.Zero);
-                                LineTo(hdc, x2, y2);
+                                _backBuffer?.Dispose();
+                                _backBuffer = new Bitmap(Math.Max(1, _w), Math.Max(1, _h), System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+                                _bufW = _w; _bufH = _h;
                             }
 
-                            // Indicador (puntero)
-                            double norm = Math.Clamp(_getNormalized(), 0.0f, 1.0f);
-                            double a = AngleMin + norm * (AngleMax - AngleMin);
-                            var penNeedle = CreatePen(0, 3, 0x002060A0);
-                            SelectObject(hdc, penNeedle);
-                            int xN = CX + (int)Math.Round((Radius - 10) * Math.Cos(a));
-                            int yN = CY + (int)Math.Round((Radius - 10) * Math.Sin(a));
-                            MoveToEx(hdc, CX, CY, IntPtr.Zero);
-                            LineTo(hdc, xN, yN);
+                            using (var gb = Graphics.FromImage(_backBuffer))
+                            {
+                                gb.SmoothingMode = SmoothingMode.HighQuality;
+                                gb.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                                gb.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                                gb.CompositingQuality = CompositingQuality.HighQuality;
 
-                            // Limpieza
-                            SelectObject(hdc, oldPen); DeleteObject(penNeedle);
-                            DeleteObject(penTick);
-                            DeleteObject(penBorder);
-                            SelectObject(hdc, oldBrush); DeleteObject(face);
-                            DeleteObject(bg);
+                                // Limpia el buffer con transparente (no fondo gris)
+                                gb.Clear(Color.Transparent);
+
+                                if (_bg512 != null && _pointerSheet != null && _top512 != null)
+                                {
+                                    float s = Math.Min(_w / 512f, _h / 512f);
+                                    int D = (int)Math.Round(512 * s);
+                                    int offX = (_w - D) / 2, offY = (_h - D) / 2;
+
+                                    // fondo
+                                    gb.DrawImage(_bg512, new Rectangle(offX, offY, D, D));
+
+                                    // puntero
+                                    double norm = Math.Clamp(_getNormalized(), 0.0f, 1.0f);
+                                    int frame = (int)Math.Round(norm * (PTR_STEPS)); // 0..72
+
+                                    var src = new Rectangle(frame * PTR_FRAME_PX, 0, PTR_FRAME_PX, PTR_FRAME_PX);
+                                    int ptrSize = (int)Math.Round(PTR_FRAME_PX * s);
+                                    int cx = offX + D / 2, cy = offY + D / 2;
+                                    var dst = new Rectangle(cx - ptrSize / 2, cy - ptrSize / 2, ptrSize, ptrSize);
+
+                                    gb.DrawImage(_pointerSheet, dst, src, GraphicsUnit.Pixel);
+
+                                    // top
+                                    gb.DrawImage(_top512, new Rectangle(offX, offY, D, D));
+                                }
+                            }
+
+                            using (var g = Graphics.FromHdc(hdc))
+                            {
+                                // copia del back buffer a pantalla en un solo blit (sin flicker)
+                                g.DrawImageUnscaled(_backBuffer, 0, 0);
+                            }
                         }
                         finally { EndPaint(_hwnd, ref ps); }
-                        return IntPtr.Zero;
+                        return (IntPtr)0;
                     }
+
 
                 case WM_LBUTTONDOWN:
                     {
@@ -171,8 +216,9 @@ internal sealed class AnalogKnobWindow
                             // Arrastre vertical: 200 px de recorrido ≈ todo el rango
                             const double sens = 1.0 / 200.0;
                             double newNorm = Math.Clamp(_dragStartNorm - dy * sens, 0.0, 1.0);
+                            newNorm = QuantizeTo1dB(newNorm);
                             _performEdit(newNorm);
-                            InvalidateRect(_hwnd, IntPtr.Zero, true);
+                            InvalidateRect(_hwnd, IntPtr.Zero, false);
                         }
                         return IntPtr.Zero;
                     }
@@ -190,11 +236,11 @@ internal sealed class AnalogKnobWindow
 
                 case WM_MOUSEWHEEL:
                     {
-                        int delta = (short)((wParam.ToInt64() >> 16) & 0xFFFF);
-                        double step = (delta / (double)WHEEL_DELTA) * 0.02; // 2% por notch
-                        double n = Math.Clamp(_getNormalized() + step, 0.0, 1.0);
+                        int ticks = (short)((wParam.ToInt64() >> 16) & 0xFFFF) / WHEEL_DELTA;
+                        double n = _getNormalized() + ticks * (1.0 / PTR_STEPS); // 1 dB por notch
+                        n = QuantizeTo1dB(n);
                         _beginEdit(); _performEdit(n); _endEdit();
-                        InvalidateRect(_hwnd, IntPtr.Zero, true);
+                        InvalidateRect(_hwnd, IntPtr.Zero, false);
                         return IntPtr.Zero;
                     }
 
@@ -203,15 +249,25 @@ internal sealed class AnalogKnobWindow
                         // Reset a 0 dB si usas -60..+12 dB
                         const double minDb = -60.0, maxDb = 12.0;
                         double norm0 = (0.0 - minDb) / (maxDb - minDb); // ≈ 0.8333
+                        norm0 = QuantizeTo1dB(norm0);
                         _beginEdit(); _performEdit(norm0); _endEdit();
-                        InvalidateRect(_hwnd, IntPtr.Zero, true);
+                        InvalidateRect(_hwnd, IntPtr.Zero, false);
                         return IntPtr.Zero;
                     }
+
+                case WM_ERASEBKGND:
+                    return (IntPtr)1;
             }
         }
         catch { /* proteger al host */ }
 
         return CallWindowProc(_origWndProc, hWnd, msg, wParam, lParam);
+    }
+
+    private static double QuantizeTo1dB(double n)
+    {
+        n = Math.Clamp(n, 0.0, 1.0);
+        return Math.Round(n * PTR_STEPS) / PTR_STEPS; // 1/72
     }
 
     // --- P/Invoke ---

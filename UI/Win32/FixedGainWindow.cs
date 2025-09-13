@@ -12,6 +12,7 @@ internal sealed class FixedGainWindow
     private const string WC_STATIC = "STATIC";
     private const int WS_CHILD = 0x40000000;
     private const int WS_VISIBLE = 0x10000000;
+    private const int WS_CLIPCHILDREN = 0x02000000;
 
     private const int LabelPadding = 8;
     private const int LabelHeight = 24;
@@ -19,7 +20,13 @@ internal sealed class FixedGainWindow
 
     // Coloca el knob bajo la etiqueta
     private const int KnobX = 40;
-    private const int KnobSize = 100;
+    private const int KnobSize = 512;
+    private const int MinWidth = KnobX + KnobSize + KnobX; // 40 + 512 + 40 = 592
+    private const int MinHeight = LabelPadding + LabelHeight + GapBelowLabel + KnobSize + LabelPadding;
+    // 8 + 24 + 8 + 512 + 8 = 560
+
+    private const int WM_ERASEBKGND = 0x0014;
+
     private int KnobY => LabelPadding + LabelHeight + GapBelowLabel;
 
     // ---- Handles/estado ----
@@ -64,6 +71,9 @@ internal sealed class FixedGainWindow
         );
     }
 
+    string AssetsPath(params string[] parts)
+    => Path.Combine(AppContext.BaseDirectory, "Assets", Path.Combine(parts));
+
     // ---- API pública ----
     public bool AttachToParent(IntPtr parentHwnd)
     {
@@ -71,7 +81,7 @@ internal sealed class FixedGainWindow
         if (_parent == IntPtr.Zero) return false;
 
         // Contenedor
-        _hwnd = CreateWindowEx(0, WC_STATIC, null, WS_CHILD | WS_VISIBLE,
+        _hwnd = CreateWindowEx(0, WC_STATIC, null, WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
                                0, 0, _width, _height,
                                _parent, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
         if (_hwnd == IntPtr.Zero) return false;
@@ -84,7 +94,14 @@ internal sealed class FixedGainWindow
 
         // Knob
         _knob.Create(_hwnd, KnobX, KnobY, KnobSize, KnobSize);
-
+        try
+        {
+            _knob.LoadAssetsEmbedded();
+        }
+        catch (Exception ex)
+        {
+            SetWindowText(_label, "Assets error: " + ex.Message);
+        }
         // Subclase del contenedor (por si luego quieres manejar mensajes)
         _origWndProc = SetWindowLongPtr(_hwnd, GWL_WNDPROC, Marshal.GetFunctionPointerForDelegate(_wndProcDelegate));
 
@@ -95,6 +112,7 @@ internal sealed class FixedGainWindow
     public void Destroy()
     {
         _knob.Destroy();
+        _knob.DisposeAssets();
         if (_label != IntPtr.Zero) DestroyWindow(_label);
         if (_hwnd != IntPtr.Zero) DestroyWindow(_hwnd);
         _label = _hwnd = IntPtr.Zero;
@@ -102,7 +120,8 @@ internal sealed class FixedGainWindow
 
     public void SetBounds(int x, int y, int width, int height)
     {
-        _width = width; _height = height;
+        _width = Math.Max(width, MinWidth);
+        _height = Math.Max(height, MinHeight);
         MoveWindow(_hwnd, x, y, _width, _height, true);
         MoveWindow(_label, LabelPadding, LabelPadding, _width - 2 * LabelPadding, LabelHeight, true);
         _knob.SetBounds(KnobX, KnobY, KnobSize, KnobSize);
@@ -121,6 +140,7 @@ internal sealed class FixedGainWindow
     private readonly WndProc _wndProcDelegate;
     private IntPtr CustomWndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
+        if (msg == WM_ERASEBKGND) return (IntPtr)1;
         // De momento, no manejamos nada especial en el contenedor
         return CallWindowProc(_origWndProc, hWnd, msg, wParam, lParam);
     }

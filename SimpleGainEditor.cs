@@ -13,8 +13,8 @@ public sealed class SimpleGainEditor : IAudioPluginView
     private float _scale = 1.0f; // DPI/content scale
 
     // Base logical size (before scaling)
-    private const int BaseWidth = 320;
-    private const int BaseHeight = 140;
+    private const int BaseWidth = 592;
+    private const int BaseHeight = 560;
 
     public SimpleGainEditor(SimpleGainController controller, SimpleGainModel model)
     {
