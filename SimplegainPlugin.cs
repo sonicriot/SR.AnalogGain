@@ -6,8 +6,8 @@ public static class SimplegainPlugin
 {
     public static AudioPluginFactory GetFactory()
     {
-        var factory = new AudioPluginFactory(new("NPlug", "https://github.com/xoofx/NPlug", "no_reply@nplug.org"));
-        factory.RegisterPlugin<SimpleGainProcessor>(new(SimpleGainProcessor.ClassId, "SimpleGain", AudioProcessorCategory.Effect));
+        var factory = new AudioPluginFactory(new("Sonic Riot", "https://sonicriotstudio.wordpress.com/", "sonicriotstudio@gmail.com"));
+        factory.RegisterPlugin<SimpleGainProcessor>(new(SimpleGainProcessor.ClassId, "SimpleGain", AudioProcessorCategory.EffectDynamics));
         factory.RegisterPlugin<SimpleGainController>(new(SimpleGainController.ClassId, "SimpleGain Controller"));
         return factory;
     }
