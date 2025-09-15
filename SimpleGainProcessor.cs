@@ -21,6 +21,8 @@ namespace NPlug.SimpleGain
 
         // --- Runtime ---
         private double _fs = 48_000.0;
+        private int _configuredChannels = -1;
+        private double _configuredFs = -1.0;
 
         // --- Fixed tone shaping (subtle) ---
         private const double PreLF_Freq = 140.0;     // Hz
@@ -45,8 +47,8 @@ namespace NPlug.SimpleGain
         {
             if (!isActive) return;
 
-            // Host provides setup here in NPlug 0.4.x
-            _fs = ProcessSetupData.SampleRate;
+            var sr = ProcessSetupData.SampleRate;
+            if (sr > 1000.0) _fs = sr;
             EnsureChannelState(null);
         }
 
@@ -56,28 +58,35 @@ namespace NPlug.SimpleGain
         private void EnsureChannelState(int? dataChannelCount)
         {
             int channels = dataChannelCount ?? 2; // default to stereo if unknown
-            if (_rms.Length == channels &&
-                _preLF.Length == channels &&
-                _postLF.Length == channels &&
-                _postHS.Length == channels &&
-                _lp18k.Length == channels)
+            bool sizeMismatch =
+                _rms.Length != channels ||
+                _preLF.Length != channels ||
+                _postLF.Length != channels ||
+                _postHS.Length != channels ||
+                _lp18k.Length != channels;
+
+            if (sizeMismatch)
             {
-                return;
+                _rms = new RmsDetector[channels];
+                _preLF = new Biquad[channels];
+                _postLF = new Biquad[channels];
+                _postHS = new Biquad[channels];
+                _lp18k = new OnePoleLP[channels];
             }
 
-            _rms = new RmsDetector[channels];
-            _preLF = new Biquad[channels];
-            _postLF = new Biquad[channels];
-            _postHS = new Biquad[channels];
-            _lp18k = new OnePoleLP[channels];
-
-            for (int ch = 0; ch < channels; ch++)
+            // Recompute if fs or channel count changed, or we just (re)allocated
+            if (sizeMismatch || _configuredFs != _fs || _configuredChannels != channels)
             {
-                _rms[ch].Setup(_fs, attackMs: 5.0, releaseMs: 60.0);
-                _preLF[ch].SetLowShelf(_fs, PreLF_Freq, PreLF_Gain);
-                _postLF[ch].SetLowShelf(_fs, PreLF_Freq, PostLF_Gain);
-                _postHS[ch].SetHighShelf(_fs, PostHS_Freq, PostHS_Gain);
-                _lp18k[ch].Setup(_fs, cutoffHz: 18_000.0); // very gentle HF smoother
+                for (int ch = 0; ch < channels; ch++)
+                {
+                    _rms[ch].Setup(_fs, attackMs: 5.0, releaseMs: 60.0);
+                    _preLF[ch].SetLowShelf(_fs, PreLF_Freq, PreLF_Gain);
+                    _postLF[ch].SetLowShelf(_fs, PreLF_Freq, PostLF_Gain);
+                    _postHS[ch].SetHighShelf(_fs, PostHS_Freq, PostHS_Gain);
+                    _lp18k[ch].Setup(_fs, cutoffHz: 18_000.0); // very gentle HF smoother
+                }
+                _configuredFs = _fs;
+                _configuredChannels = channels;
             }
         }
 
@@ -87,6 +96,8 @@ namespace NPlug.SimpleGain
             var outputBus = data.Output[0];
 
             // Keep channel state in sync with the current audio bus
+            if (ProcessSetupData.SampleRate > 1000.0 && ProcessSetupData.SampleRate != _fs)
+                _fs = ProcessSetupData.SampleRate;
             EnsureChannelState(inputBus.ChannelCount);
 
             // Map normalized UI gain [0..1] to dB and then to linear
