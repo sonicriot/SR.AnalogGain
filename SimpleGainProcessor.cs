@@ -20,6 +20,8 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
     private OnePoleLP[] _lp18k = Array.Empty<OnePoleLP>(); // HF tamer
 
     private double _fs = 48000.0;
+    private int _configuredChannels = -1;
+    private double _configuredFs = -1.0;
 
     // Color fijo (ligero)
     private const double PreLF_Freq = 140.0;    // Hz
@@ -40,27 +42,43 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
         if (!isActive) return;
 
         _fs = ProcessSetupData.SampleRate;
+        _configuredFs = -1.0;
+        _configuredChannels = -1;
         EnsureChannelState(dataChannelCount: null);
     }
 
     private void EnsureChannelState(int? dataChannelCount)
     {
         int channels = dataChannelCount ?? 2;
-        if (_rms.Length == channels && _preLF.Length == channels) return;
 
-        _rms = new RmsDetector[channels];
-        _preLF = new Biquad[channels];
-        _postLF = new Biquad[channels];
-        _postHS = new Biquad[channels];
-        _lp18k = new OnePoleLP[channels];
+        bool sizeMismatch =
+            _rms.Length != channels ||
+            _preLF.Length != channels ||
+            _postLF.Length != channels ||
+            _postHS.Length != channels ||
+            _lp18k.Length != channels;
 
-        for (int ch = 0; ch < channels; ch++)
+        if (sizeMismatch)
         {
-            _rms[ch].Setup(_fs, attackMs: 5.0, releaseMs: 60.0);
-            _preLF[ch].SetLowShelf(_fs, PreLF_Freq, PreLF_Gain);
-            _postLF[ch].SetLowShelf(_fs, PreLF_Freq, PostLF_Gain);
-            _postHS[ch].SetHighShelf(_fs, PostHS_Freq, PostHS_Gain);
-            _lp18k[ch].Setup(_fs, cutoffHz: 18000.0); // HF tamer
+            _rms = new RmsDetector[channels];
+            _preLF = new Biquad[channels];
+            _postLF = new Biquad[channels];
+            _postHS = new Biquad[channels];
+            _lp18k = new OnePoleLP[channels];
+        }
+
+        if (sizeMismatch || _configuredFs != _fs || _configuredChannels != channels)
+        {
+            for (int ch = 0; ch < channels; ch++)
+            {
+                _rms[ch].Setup(_fs, attackMs: 5.0, releaseMs: 60.0);
+                _preLF[ch].SetLowShelf(_fs, PreLF_Freq, PreLF_Gain);
+                _postLF[ch].SetLowShelf(_fs, PreLF_Freq, PostLF_Gain);
+                _postHS[ch].SetHighShelf(_fs, PostHS_Freq, PostHS_Gain);
+                _lp18k[ch].Setup(_fs, cutoffHz: 18000.0); // HF tamer
+            }
+            _configuredFs = _fs;
+            _configuredChannels = channels;
         }
     }
 
@@ -68,6 +86,13 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
     {
         var inputBus = data.Input[0];
         var outputBus = data.Output[0];
+
+        double sampleRate = ProcessSetupData.SampleRate;
+        if (sampleRate > 1000.0 && sampleRate != _fs)
+        {
+            _fs = sampleRate;
+            _configuredFs = -1.0;
+        }
 
         EnsureChannelState(inputBus.ChannelCount);
 
