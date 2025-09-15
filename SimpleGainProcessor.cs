@@ -17,6 +17,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
     private Biquad[] _preLF = Array.Empty<Biquad>();
     private Biquad[] _postLF = Array.Empty<Biquad>();
     private Biquad[] _postHS = Array.Empty<Biquad>();
+    private Biquad[] _postHS2 = Array.Empty<Biquad>();
     private OnePoleLP[] _lp18k = Array.Empty<OnePoleLP>(); // HF tamer
 
     private double _fs = 48000.0;
@@ -26,9 +27,9 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
     // Color fijo (ligero)
     private const double PreLF_Freq = 140.0;    // Hz
     private const double PreLF_Gain = +2;     // dB  (antes +3 dB)
-    private const double PostLF_Gain = -2;    // dB  (compensa)
-    private const double PostHS_Freq = 14000.0; // Hz
-    private const double PostHS_Gain = -0.6;    // dB  (tilt sutil)
+    private const double PostLF_Gain = -1.7;    // dB  (compensa)
+    private const double PostHS_Freq = 18000.0; // Hz
+    private const double PostHS_Gain = -1.4;    // dB  (tilt sutil)
 
     protected override bool Initialize(AudioHostApplication host)
     {
@@ -56,6 +57,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
             _preLF.Length != channels ||
             _postLF.Length != channels ||
             _postHS.Length != channels ||
+            _postHS2.Length != channels ||
             _lp18k.Length != channels;
 
         if (sizeMismatch)
@@ -64,6 +66,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
             _preLF = new Biquad[channels];
             _postLF = new Biquad[channels];
             _postHS = new Biquad[channels];
+            _postHS2 = new Biquad[channels];
             _lp18k = new OnePoleLP[channels];
         }
 
@@ -74,8 +77,9 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
                 _rms[ch].Setup(_fs, attackMs: 5.0, releaseMs: 60.0);
                 _preLF[ch].SetLowShelf(_fs, PreLF_Freq, PreLF_Gain);
                 _postLF[ch].SetLowShelf(_fs, PreLF_Freq, PostLF_Gain);
-                _postHS[ch].SetHighShelf(_fs, PostHS_Freq, PostHS_Gain);
-                _lp18k[ch].Setup(_fs, cutoffHz: 18000.0); // HF tamer
+                _postHS[ch].SetHighShelf(_fs, PostHS_Freq, PostHS_Gain, 0.7);
+                _postHS2[ch].SetHighShelf(_fs, 4000, 0.6, 0.5);
+                _lp18k[ch].Setup(_fs, cutoffHz: 22000.0); // HF tamer
             }
             _configuredFs = _fs;
             _configuredChannels = channels;
@@ -118,6 +122,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
             ref var preLF = ref _preLF[ch];
             ref var postLF = ref _postLF[ch];
             ref var postHS = ref _postHS[ch];
+            ref var postHS2 = ref _postHS2[ch];
             ref var lp18k = ref _lp18k[ch];
 
             for (int i = 0; i < data.SampleCount; i++)
@@ -139,6 +144,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
                 // 5) Compensaciones / HF tame
                 y = postLF.Process(y);
                 y = postHS.Process(y);
+                y = postHS2.Process(y);
                 y = lp18k.Process(y); // LP 18 kHz muy suave
 
                 output[i] = y;
@@ -181,7 +187,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
     {
         private float a0, a1, a2, b1, b2, z1, z2;
 
-        public void SetLowShelf(double fs, double f0, double dBgain, double Q = 1.41421356237)
+        public void SetLowShelf(double fs, double f0, double dBgain, double Q = 0.6)
         {
             double A = Math.Pow(10.0, dBgain / 40.0);
             double w0 = 2 * Math.PI * f0 / fs;
@@ -203,7 +209,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
             z1 = z2 = 0f;
         }
 
-        public void SetHighShelf(double fs, double f0, double dBgain, double Q = 1.41421356237)
+        public void SetHighShelf(double fs, double f0, double dBgain, double Q = 0.8)
         {
             double A = Math.Pow(10.0, dBgain / 40.0);
             double w0 = 2 * Math.PI * f0 / fs;
