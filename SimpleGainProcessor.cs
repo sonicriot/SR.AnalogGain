@@ -20,6 +20,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
     private Biquad[] _postHS2 = Array.Empty<Biquad>();
     private OnePoleLP[] _lp18k = Array.Empty<OnePoleLP>(); // very gentle HF tamer
     private DcBlock[] _dc = Array.Empty<DcBlock>();
+    private float[] _gainZ = Array.Empty<float>(); // smoothed gain per channel
 
     private double _fs = 48000.0;
     private int _configuredChannels = -1;
@@ -60,7 +61,8 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
             _postHS.Length != channels ||
             _postHS2.Length != channels ||
             _lp18k.Length != channels ||
-            _dc.Length != channels;
+            _dc.Length != channels ||
+            _gainZ.Length != channels;
 
         // Allocate arrays if channel count changed
         if (sizeMismatch)
@@ -72,6 +74,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
             _postHS2 = new Biquad[channels];
             _lp18k = new OnePoleLP[channels];
             _dc = new DcBlock[channels];
+            _gainZ = new float[channels];
         }
 
         // (Re)configure filters if fs or channel count changed
@@ -138,10 +141,19 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
             ref var lp18k = ref _lp18k[ch];
             ref var dc = ref _dc[ch];
 
+            // init on first buffer for this channel
+            if (_gainZ[ch] == 0f) _gainZ[ch] = gain;
+
+            // prepare block-linear ramp from current to target
+            float g = _gainZ[ch];
+            float gInc = (gain - g) / Math.Max(1, data.SampleCount);
+
             for (int i = 0; i < data.SampleCount; i++)
             {
                 // 1) Linear gain
-                float x = input[i] * gain;
+                //float x = input[i] * gain;
+                g += gInc;                    // smooth step
+                float x = input[i] * g;       // use smoothed gain
 
                 // 2) RMS level → dynamic drive
                 float e = rms.Process(x);
@@ -188,6 +200,8 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
                 y = lp18k.Process(y);
 
                 output[i] = y;
+
+                _gainZ[ch] = g;               // persist smoothed value
             }
         }
     }
