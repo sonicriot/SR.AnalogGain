@@ -18,9 +18,10 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
     private Biquad[] _postLF = Array.Empty<Biquad>();
     private Biquad[] _postHS = Array.Empty<Biquad>();
     private Biquad[] _postHS2 = Array.Empty<Biquad>();
-    private OnePoleLP[] _lp18k = Array.Empty<OnePoleLP>(); // very gentle HF tamer
+    private OnePoleLP[] _lp18k = Array.Empty<OnePoleLP>();   // very gentle HF tamer
     private DcBlock[] _dc = Array.Empty<DcBlock>();
-    private float[] _gainZ = Array.Empty<float>(); // smoothed gain per channel
+    private float[] _gainZ = Array.Empty<float>();           // smoothed gain
+    private float[] _adaaPrev = Array.Empty<float>();        // ADAA state
 
     private double _fs = 48000.0;
     private int _configuredChannels = -1;
@@ -28,7 +29,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
 
     // Fixed mild coloration (pre/post shelves + subtle HF tilt)
     private const double PreLF_Freq = 140.0;   // Hz
-    private const double PreLF_Gain = +2;      // dB
+    private const double PreLF_Gain = +2.0;    // dB
     private const double PostLF_Gain = -1.7;   // dB (compensates PreLF)
     private const double PostHS_Freq = 18000.0; // Hz
     private const double PostHS_Gain = -1.4;   // dB (subtle tilt)
@@ -43,7 +44,6 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
     protected override void OnActivate(bool isActive)
     {
         if (!isActive) return;
-
         _fs = ProcessSetupData.SampleRate;
         _configuredFs = -1.0;
         _configuredChannels = -1;
@@ -62,9 +62,9 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
             _postHS2.Length != channels ||
             _lp18k.Length != channels ||
             _dc.Length != channels ||
-            _gainZ.Length != channels;
+            _gainZ.Length != channels ||
+            _adaaPrev.Length != channels;
 
-        // Allocate arrays if channel count changed
         if (sizeMismatch)
         {
             _rms = new RmsDetector[channels];
@@ -75,9 +75,9 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
             _lp18k = new OnePoleLP[channels];
             _dc = new DcBlock[channels];
             _gainZ = new float[channels];
+            _adaaPrev = new float[channels];
         }
 
-        // (Re)configure filters if fs or channel count changed
         if (sizeMismatch || _configuredFs != _fs || _configuredChannels != channels)
         {
             for (int ch = 0; ch < channels; ch++)
@@ -86,9 +86,9 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
                 _preLF[ch].SetLowShelf(_fs, PreLF_Freq, PreLF_Gain);
                 _postLF[ch].SetLowShelf(_fs, PreLF_Freq, PostLF_Gain);
                 _postHS[ch].SetHighShelf(_fs, PostHS_Freq, PostHS_Gain, 0.7);
-                _postHS2[ch].SetHighShelf(_fs, 4000, 0.6, 0.5);
-                _lp18k[ch].Setup(_fs, cutoffHz: 22000.0); // very gentle LP above audio band
-                _dc[ch].Setup(_fs, 8.0); // DC blocker ~5–15 Hz
+                _postHS2[ch].SetHighShelf(_fs, 4000.0, 0.6, 0.5);
+                _lp18k[ch].Setup(_fs, cutoffHz: 22000.0);
+                _dc[ch].Setup(_fs, 8.0);
             }
             _configuredFs = _fs;
             _configuredChannels = channels;
@@ -100,7 +100,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
         var inputBus = data.Input[0];
         var outputBus = data.Output[0];
 
-        // Keep fs in sync with the host
+        // Track host sample rate changes
         double sampleRate = ProcessSetupData.SampleRate;
         if (sampleRate > 1000.0 && sampleRate != _fs)
         {
@@ -117,12 +117,12 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
         double gainDb = minDb + normalized * (maxDb - minDb);
         float gain = (float)Math.Pow(10.0, gainDb / 20.0);
 
-        // Dynamic drive knee (RMS → s in 0..1)
-        const float kneeLo = 0.200f; // ~ -14 dBFS
-        const float kneeHi = 0.750f; // ~  -2.5 dBFS
-        const float kMaxBoost = 1.7f; // max extra drive applied at s→1
+        // RMS → drive curve
+        const float kneeLo = 0.200f;  // ~ -14 dBFS
+        const float kneeHi = 0.750f;  // ~  -2.5 dBFS
+        const float kMaxBoost = 1.7f; // max extra drive at s→1
 
-        // Asymmetry / bias ranges (scaled by s)
+        // Asymmetry / bias ranges
         const float asymMax = 0.15f;
         const float kBiasBase = 0.028f; // effective bias at low drive
         const float kBiasHigh = 0.042f; // effective bias at high drive
@@ -141,37 +141,34 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
             ref var lp18k = ref _lp18k[ch];
             ref var dc = ref _dc[ch];
 
-            // init on first buffer for this channel
+            // initialize smoothed gain on first buffer
             if (_gainZ[ch] == 0f) _gainZ[ch] = gain;
 
-            // prepare block-linear ramp from current to target
             float g = _gainZ[ch];
             float gInc = (gain - g) / Math.Max(1, data.SampleCount);
 
             for (int i = 0; i < data.SampleCount; i++)
             {
-                // 1) Linear gain
-                //float x = input[i] * gain;
-                g += gInc;                    // smooth step
-                float x = input[i] * g;       // use smoothed gain
+                // 1) Linear gain (smoothed)
+                g += gInc;
+                float x = input[i] * g;
 
-                // 2) RMS level → dynamic drive
+                // 2) RMS envelope → drive control (s in 0..1)
                 float e = rms.Process(x);
-                float s = SmoothStep(kneeLo, kneeHi, e); // 0..1
+                float s = SmoothStep(kneeLo, kneeHi, e);
                 s = MathF.Pow(s, 1.6f);
 
-                // Dynamic drive amount (scales the shaper)
+                // Drive scalar for the shaper
                 float dynDrive = 1.0f + kMaxBoost * s;
 
-                // Dry/Wet: late-onset, capped blend of the shaper
-                // wetFloor=15% ensures non-zero harmonics at low s; wetCeil=30% max
-                const float wetFloor = 0.15f; // 15%
-                const float wetCeil = 0.30f; // 30%
-                const float wetPow = 1.6f;  // late curve
+                // Dry/Wet blend (late onset)
+                const float wetFloor = 0.15f;
+                const float wetCeil = 0.30f;
+                const float wetPow = 1.6f;
                 float wet = wetFloor + (wetCeil - wetFloor) * MathF.Pow(s, wetPow);
                 float dry = 1.0f - wet;
 
-                // Asymmetry & bias scale with s (more asym at the end of the knee)
+                // Asymmetry & bias vs s
                 float aGate = SmoothStep(0.88f, 1.00f, s);
                 aGate = MathF.Pow(aGate, 1.3f);
                 float asym = asymMax * aGate;
@@ -180,33 +177,28 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
                 // 3) Pre-emphasis into the shaper
                 float xPre = preLF.Process(x);
 
-                // 4) Nonlinearity (choose ONE):
-                //    a) asymmetrical (current default)
-                float ySh = Shaper.ProcessAsymTanh(xPre, dynDrive, asym, kBiasEff);
+                // 4) Nonlinearity (ADAA).
+                float ySh = Shaper.ProcessAsymTanhADAA(xPre, ref _adaaPrev[ch], dynDrive, asym, kBiasEff);
 
-                //    b) symmetrical (uncomment to try a cleaner symmetric tanh)
-                // float ySh = Shaper.ProcessNormalizedTanh(xPre, dynDrive);
-
-                // 4b) Remove any tiny DC introduced by asymmetry
+                // 4b) Remove tiny DC introduced by asymmetry
                 ySh = dc.Process(ySh);
 
-                // Dry/Wet mix
+                // 5) Dry/Wet and post-EQ
                 float y = dry * xPre + wet * ySh;
 
-                // 5) Post-EQ and HF tame
+                // 6) Post filtering
                 y = postLF.Process(y);
                 y = postHS.Process(y);
                 y = postHS2.Process(y);
                 y = lp18k.Process(y);
 
                 output[i] = y;
-
-                _gainZ[ch] = g;               // persist smoothed value
+                _gainZ[ch] = g;
             }
         }
     }
 
-    // ---------- Helpers ----------
+    // --- Helpers ---
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static float SmoothStep(float a, float b, float x)
@@ -295,7 +287,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
         }
     }
 
-    // One-pole low-pass (cheap) used as gentle HF tamer
+    // One-pole low-pass (cheap) used as very gentle HF tamer
     private struct OnePoleLP
     {
         private float a, b, z;
@@ -320,7 +312,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
     // First-order high-pass DC blocker
     private struct DcBlock
     {
-        private float a;    // pole (0..1)
+        private float a; // pole (0..1)
         private float x1, y1;
 
         public void Setup(double fs, double fHz = 10.0)
@@ -341,52 +333,58 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
 
     private static class Shaper
     {
-        // Subtle static bias to seed a small 2nd harmonic
+        // Small static bias to seed a tiny 2nd harmonic (used in normalization)
         private const float kBias = 0.006f;
 
-        // Symmetric normalized tanh (kept for easy A/B; call is commented in ProcessMain)
+        // ADAA version of the asymmetric normalized tanh
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static float ProcessNormalizedTanh(float x, float dyn)
+        public static float ProcessAsymTanhADAA(float x, ref float xz, float dyn, float asym, float kBias)
         {
-            // Normalize slope around 0 so drive doesn't harden the mid region
-            // d/dx tanh(d*(x+b)) at x=0 is d*sech^2(d*b)
-            float d = dyn;
-            float db = d * kBias;
-            float sech2 = Sech2(db);
-            float norm = 1.0f / (d * sech2);
-
-            float y = MathF.Tanh(d * (x + kBias)) - MathF.Tanh(db);
-            y *= norm; // ~unit slope near 0
-
-            // soft limiter to avoid excessive peaks
-            return 0.98f * MathF.Tanh(y);
-        }
-
-        // Asymmetric normalized tanh with bias (current default)
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static float ProcessAsymTanh(float x, float dyn, float asym, float kBias)
-        {
+            // Asymmetric drive factors
             float dpos = dyn * (1f + asym);
             float dneg = dyn * (1f - asym);
 
-            float db = dpos * kBias;                 // normalize using + side
-            float sech2 = Sech2(db);
+            // Choose branch by midpoint (improves stability around zero-crossings)
+            float xPrev = xz;
+            float xMid = 0.5f * (x + xPrev);
+            float d = (xMid >= 0f) ? dpos : dneg;
+
+            // Slope normalization around zero using + side
+            float dbPos = dpos * kBias;
+            float sech2 = Sech2(dbPos);
             float norm = 1f / (dpos * sech2);
 
-            float y = x >= 0
-                ? MathF.Tanh(dpos * (x + kBias)) - MathF.Tanh(db)
-                : MathF.Tanh(dneg * (x + kBias)) - MathF.Tanh(db);
+            // Antiderivative of tanh(d*(x+kBias)) − tanh(d*kBias):
+            // F(x) = (1/d) * log(cosh(d*(x+kBias))) − x * tanh(d*kBias)
+            float db = d * kBias;
 
-            y *= norm;
-            return 0.98f * MathF.Tanh(y);            // soft limiter
+            float dx = x - xPrev;
+            float yAvg;
+            if (MathF.Abs(dx) < 1e-9f)
+            {
+                // fallback to midpoint evaluation
+                yAvg = MathF.Tanh(d * (xMid + kBias)) - MathF.Tanh(db);
+            }
+            else
+            {
+                float Fx = (1f / d) * LogCoshF(d * (x + kBias)) - x * MathF.Tanh(db);
+                float Fx1 = (1f / d) * LogCoshF(d * (xPrev + kBias)) - xPrev * MathF.Tanh(db);
+                yAvg = (Fx - Fx1) / dx;
+            }
+
+            xz = x;                 // update ADAA state
+            float y = yAvg * norm;  // normalize local slope
+            return 0.98f * MathF.Tanh(y); // very soft limiter
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static float LogCoshF(float v) => (float)Math.Log(Math.Cosh(v));
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static float Sech2(float x)
         {
-            // sech(x) = 1 / cosh(x);  sech^2(x) = 1 / cosh^2(x)
-            float c = MathF.Cosh(x);
-            return 1.0f / (c * c);
+            float c = (float)Math.Cosh(x);
+            return 1f / (c * c);
         }
     }
 }
