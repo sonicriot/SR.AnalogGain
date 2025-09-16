@@ -29,4 +29,18 @@
     <PackageReference Include="System.Drawing.Common" Version="9.0.9" />
   </ItemGroup>
 
+  <PropertyGroup>
+    <CopyVST3OnPublish>true</CopyVST3OnPublish>
+    <VST3Dest>$(CommonProgramFiles)\VST3</VST3Dest>
+  </PropertyGroup>
+
+  <Target Name="CopyVST3OnPublish" AfterTargets="Publish" Condition="'$(CopyVST3OnPublish)'=='true'">
+    <ItemGroup>
+      <PublishedVST3 Include="$(PublishDir)**\*.vst3" />
+    </ItemGroup>
+
+    <Message Text="Copying %(PublishedVST3.Identity) → $(VST3Dest)" Importance="high" Condition="@(PublishedVST3) != ''" />
+    <MakeDir Directories="$(VST3Dest)" />
+    <Copy SourceFiles="@(PublishedVST3)" DestinationFolder="$(VST3Dest)" SkipUnchangedFiles="true" Condition="@(PublishedVST3) != ''" />
+  </Target>
 </Project>

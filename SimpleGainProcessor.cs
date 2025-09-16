@@ -19,6 +19,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
     private Biquad[] _postHS = Array.Empty<Biquad>();
     private Biquad[] _postHS2 = Array.Empty<Biquad>();
     private OnePoleLP[] _lp18k = Array.Empty<OnePoleLP>(); // HF tamer
+    private DcBlock[] _dc = Array.Empty<DcBlock>();
 
     private double _fs = 48000.0;
     private int _configuredChannels = -1;
@@ -58,7 +59,8 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
             _postLF.Length != channels ||
             _postHS.Length != channels ||
             _postHS2.Length != channels ||
-            _lp18k.Length != channels;
+            _lp18k.Length != channels ||
+            _dc.Length != channels;
 
         if (sizeMismatch)
         {
@@ -68,6 +70,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
             _postHS = new Biquad[channels];
             _postHS2 = new Biquad[channels];
             _lp18k = new OnePoleLP[channels];
+            _dc = new DcBlock[channels];
         }
 
         if (sizeMismatch || _configuredFs != _fs || _configuredChannels != channels)
@@ -80,6 +83,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
                 _postHS[ch].SetHighShelf(_fs, PostHS_Freq, PostHS_Gain, 0.7);
                 _postHS2[ch].SetHighShelf(_fs, 4000, 0.6, 0.5);
                 _lp18k[ch].Setup(_fs, cutoffHz: 22000.0); // HF tamer
+                _dc[ch].Setup(_fs, 8.0); // 5–15 Hz
             }
             _configuredFs = _fs;
             _configuredChannels = channels;
@@ -108,9 +112,14 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
         float gain = (float)Math.Pow(10.0, gainDb / 20.0);
 
         // Knee del drive dinámico
-        const float kneeLo = 0.063f; // ~ -24 dBFS
-        const float kneeHi = 0.501f; // ~ -6 dBFS
-        const float kMaxBoost = 2.2f;
+        const float kneeLo = 0.200f; // ~ -14 dBFS
+        const float kneeHi = 0.750f; // ~  -2.5 dBFS
+        const float kMaxBoost = 1.6f; 
+
+        // Parámetros de asimetría / bias
+        const float asymMax = 0.18f;
+        const float kBiasBase = 0.035f;  // bias efectivo en drive bajo
+        const float kBiasHigh = 0.050f;   // bias efectivo en drive alto
 
         int channels = inputBus.ChannelCount;
         for (int ch = 0; ch < channels; ch++)
@@ -124,6 +133,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
             ref var postHS = ref _postHS[ch];
             ref var postHS2 = ref _postHS2[ch];
             ref var lp18k = ref _lp18k[ch];
+            ref var dc = ref _dc[ch];
 
             for (int i = 0; i < data.SampleCount; i++)
             {
@@ -133,13 +143,39 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
                 // 2) Nivel RMS post-gain → drive dinámico
                 float e = rms.Process(x);
                 float s = SmoothStep(kneeLo, kneeHi, e); // 0..1
-                float dynDrive = 1.0f + kMaxBoost * s;
+                s = MathF.Pow(s, 1.6f);
+
+                // Drive real MUY pequeño (casi lineal)
+                float dynDrive = 1.0f + kMaxBoost * s;     // kMaxBoost = 0.5f en tu código
+
+                // Mezcla wet muy tardía: empieza casi a 0 y sólo sube al final
+                const float wetFloor = 0.15f;            // 1.2% SIEMPRE → no 0 armónicos
+                const float wetCeil = 0.30f;             // máx 16% de señal shaper
+                const float wetPow = 1.8f;              // curva tardía
+                float wet = wetFloor + (wetCeil - wetFloor) * MathF.Pow(s, wetPow);
+                float dry = 1.0f - wet;
+
+                // Asimetría y bias dinámicos
+                float asym = asymMax * SmoothStep(0.8f, 1.0f, s);
+                float kBiasEff = kBiasBase + (kBiasHigh - kBiasBase) * (asym / asymMax);
 
                 // 3) Pre énfasis hacia el shaper
                 float xPre = preLF.Process(x);
 
-                // 4) No linealidad suavizada (tanh normalizada + asimetría ligera)
-                float y = Shaper.ProcessNormalizedTanh(xPre, dynDrive);
+                //// 4) No linealidad suavizada (tanh normalizada + asimetría ligera)
+                //float ySh = Shaper.ProcessNormalizedTanh(xPre, dynDrive);
+
+                // 4) No linealidad suavizada con asimetría
+                float ySh = Shaper.ProcessAsymTanh(xPre, dynDrive, asym, kBiasEff);
+
+                // 4b) Quitar DC tras asimetría
+                ySh = dc.Process(ySh);
+
+                //// 4) No linealidad ULTRA suave (casi lineal)
+                //float ySh = Shaper.ProcessNormalizedTanhLinearBias0(xPre, dynDrive);
+
+                // mezcla dry/wet
+                float y = dry * xPre + wet * ySh;
 
                 // 5) Compensaciones / HF tame
                 y = postLF.Process(y);
@@ -263,13 +299,35 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
         }
     }
 
+    // 1º orden HP DC blocker
+    private struct DcBlock
+    {
+        private float a;    // R
+        private float x1, y1;
+
+        public void Setup(double fs, double fHz = 10.0)
+        {
+            a = (float)Math.Exp(-2.0 * Math.PI * fHz / fs); // 0 < a < 1
+            x1 = y1 = 0f;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public float Process(float x)
+        {
+            float y = x - x1 + a * y1;
+            x1 = x;
+            y1 = y;
+            return y;                 // <-- sin multiplicar por nada
+        }
+    }
+
     private static class Shaper
     {
         // Asimetría sutil (2º armónico muy ligero)
-        private const float kBias = 0.012f;
+        private const float kBias = 0.006f;
+        // Fuerza global de saturación (0 = lineal, 1 = tanh normal)
+        private const float kStrength = 0.25f; // puedes bajar a 0.20 si aún quieres menos armónicos
 
-        // Curva más dulce: tanh normalizada + y^3 MUY pequeño
-        private const float kA = 0.012f; // antes 0.028 → menos 3º armónico
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float ProcessNormalizedTanh(float x, float dyn)
@@ -284,13 +342,48 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
             float y = MathF.Tanh(d * (x + kBias)) - MathF.Tanh(db);
             y *= norm; // pendiente ~1 cerca de 0
 
-            // toque sutil de 3er armónico
-            float y3 = y * y * y;
-            y = y + kA * y3;
-
             // limit muy suave
             return 0.98f * MathF.Tanh(y);
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float ProcessAsymTanh(float x, float dyn, float asym, float kBias)
+        {
+            float dpos = dyn * (1f + asym);
+            float dneg = dyn * (1f - asym);
+
+            float db = dpos * kBias;                 // usa el lado + para normalizar
+            float sech2 = Sech2(db);
+            float norm = 1f / (dpos * sech2);
+
+            float y = x >= 0
+                ? MathF.Tanh(dpos * (x + kBias)) - MathF.Tanh(db)
+                : MathF.Tanh(dneg * (x + kBias)) - MathF.Tanh(db);
+
+            y *= norm;
+            return 0.98f * MathF.Tanh(y);            // limit suave
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float ProcessNormalizedTanhLinearBias0(float x, float dyn)
+        {
+            // Bias = 0 → minimiza 2º armónico fijo
+            const float kBias = 0.0f;
+
+            float d = dyn;
+            float db = d * kBias;           // 0, por claridad
+            float sech2 = Sech2(db);        // = 1 en la práctica
+            float norm = 1.0f / (d * sech2);
+
+            float shaped = MathF.Tanh(d * (x + kBias)) - MathF.Tanh(db); // tanh(d*x)
+            shaped *= norm; // pendiente ≈ 1 en torno a 0
+
+            // Mezcla interna: atenúa aún más la no linealidad
+            return Lerp(x, shaped, kStrength) * 0.995f; // limitín suave
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static float Lerp(float a, float b, float t) => a + (b - a) * t;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static float Sech2(float x)
