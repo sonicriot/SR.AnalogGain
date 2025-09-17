@@ -22,6 +22,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
     private DcBlock[] _dc = Array.Empty<DcBlock>();
     private float[] _gainZ = Array.Empty<float>();           // smoothed gain
     private float[] _adaaPrev = Array.Empty<float>();        // ADAA state
+    private float[] _outputZ = Array.Empty<float>();
 
     private double _fs = 48000.0;
     private int _configuredChannels = -1;
@@ -63,7 +64,8 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
             _lp18k.Length != channels ||
             _dc.Length != channels ||
             _gainZ.Length != channels ||
-            _adaaPrev.Length != channels;
+            _adaaPrev.Length != channels ||
+            _outputZ.Length != channels;
 
         if (sizeMismatch)
         {
@@ -76,6 +78,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
             _dc = new DcBlock[channels];
             _gainZ = new float[channels];
             _adaaPrev = new float[channels];
+            _outputZ = new float[channels];
         }
 
         if (sizeMismatch || _configuredFs != _fs || _configuredChannels != channels)
@@ -122,7 +125,10 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
         const double outMaxDb = +12.0;
         double outNorm = Model.Output.NormalizedValue;
         double outDb = outMinDb + outNorm * (outMaxDb - outMinDb);
-        float outGain = (float)Math.Pow(10.0, outDb / 20.0);
+
+        const double minOutDb = -24.0;
+        const double maxOutDb = +12.0;
+        float outTarget = (float)Math.Pow(10.0, outDb / 20.0);
 
         // RMS → drive curve
         const float kneeLo = 0.200f;  // ~ -14 dBFS
@@ -153,6 +159,11 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
 
             float g = _gainZ[ch];
             float gInc = (gain - g) / Math.Max(1, data.SampleCount);
+
+            if (_outputZ[ch] == 0f) _outputZ[ch] = outTarget;
+
+            float outNow = _outputZ[ch];
+            float outInc = (outTarget - outNow) / Math.Max(1, data.SampleCount);
 
             for (int i = 0; i < data.SampleCount; i++)
             {
@@ -199,10 +210,12 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
                 y = postHS2.Process(y);
                 y = lp18k.Process(y);
 
-                y *= outGain;    // final output trim
-                output[i] = y;
-                _gainZ[ch] = g;
+                outNow += outInc;    // final output trim
+                output[i] = y * outNow;
+                
             }
+            _gainZ[ch] = g;
+            _outputZ[ch] = outNow;
         }
     }
 
