@@ -3,243 +3,230 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 
-namespace NPlug.SimpleGain.UI.Win32;
-
-/// <summary>
-/// Win32 child window that renders a layered knob UI:
-/// background (512x512) → pointer sprite (73 frames, 300x300) → top overlay (512x512),
-/// with a dB overlay text. Double-buffered, DPI-aware, and quantized to 1 dB steps.
-/// </summary>
-internal sealed class AnalogKnobWindow
+namespace NPlug.SimpleGain.UI.Win32
 {
-    // ---- Embedded assets ----------------------------------------------------
-
-    private Bitmap? _bg512;         // 512x512 background
-    private Bitmap? _pointerSheet;  // 73 horizontal frames, each 300x300
-    private Bitmap? _top512;        // 512x512 top overlay (ring/highlights)
-
-    // ---- Back buffer --------------------------------------------------------
-
-    private Bitmap? _backBuffer;
-    private int _bufW, _bufH;
-
-    // ---- Parameter range ----------------------------------------------------
-
-    private readonly double _minDb;
-    private readonly double _maxDb;
-
-    // ---- Design constants ---------------------------------------------------
-
-    private const int BG_PX = 512;
-    private const int TOP_PX = 512;
-    private const int PTR_FRAME_PX = 300;
-    private const int PTR_FRAMES = 73;           // -60..+12 => 73 steps (1 dB per frame)
-    private const int PTR_STEPS = PTR_FRAMES - 1; // 72 (index 0..72)
-
-    // ---- DPI ----------------------------------------------------------------
-
-    private int _dpi = 96;
-    private float DpiScale => _dpi / 96f;
-
-    // ---- Win32 --------------------------------------------------------------
-
-    private const string WC_STATIC = "STATIC";
-    private const int WS_CHILD = 0x40000000;
-    private const int WS_VISIBLE = 0x10000000;
-    private const int SS_NOTIFY = 0x0100;
-
-    private const int GWL_WNDPROC = -4;
-
-    private const int WM_PAINT = 0x000F;
-    private const int WM_LBUTTONDOWN = 0x0201;
-    private const int WM_LBUTTONUP = 0x0202;
-    private const int WM_MOUSEMOVE = 0x0200;
-    private const int WM_MOUSEWHEEL = 0x020A;
-    private const int WM_LBUTTONDBLCLK = 0x0203;
-    private const int WM_ERASEBKGND = 0x0014;
-    private const int WM_DPICHANGED = 0x02E0;
-
-    private const int WHEEL_DELTA = 120;
-
-    // ---- Geometry / state ---------------------------------------------------
-
-    private int _x, _y, _w, _h;
-
-    // Interaction (drag)
-    private bool _editing;
-    private int _dragStartY;
-    private double _dragStartNorm;
-
-    // Callbacks
-    private readonly Func<float> _getNormalized;
-    private readonly Action _beginEdit;
-    private readonly Action<double> _performEdit;
-    private readonly Action _endEdit;
-
-    // Window handles
-    private IntPtr _parent;
-    private IntPtr _hwnd;
-    private IntPtr _origWndProc = IntPtr.Zero;
-    private readonly WndProc _proc;
-
-    // ---- Ctor ---------------------------------------------------------------
-
-    public AnalogKnobWindow(
-        Func<float> getNormalized,
-        Action beginEdit,
-        Action<double> performEdit,
-        Action endEdit,
-        double minDb,
-        double maxDb)
+    internal sealed class AnalogKnobWindow
     {
-        _getNormalized = getNormalized;
-        _beginEdit = beginEdit;
-        _performEdit = performEdit;
-        _endEdit = endEdit;
+        // ---------- Recursos (nombres embebidos) ----------
+        private readonly string _faceResName;
+        private readonly string _topResName;
+        private readonly string _pointerResName;
 
-        _minDb = minDb;
-        _maxDb = maxDb;
+        private Bitmap? _face512;        // aro metálico / cara
+        private Bitmap? _top512;         // tapa superior del color
+        private Bitmap? _pointerSheet;   // sprite puntero 300x300 x 73
 
-        _proc = WndProcImpl;
-    }
+        // Fondo del contenedor (para recortar debajo del knob)
+        private Bitmap? _containerBg;
+        private int _containerW = 1, _containerH = 1;
 
-    // ---- Asset lifetime -----------------------------------------------------
+        // ---------- Geometría / sprite ----------
+        private const float SweepDeg = 263f;        // barrido total del puntero
+        private const float StartDeg = -SweepDeg + 39f; // primer frame
+        private const int PTR_FRAMES = 73;
+        private const int PTR_STEPS = PTR_FRAMES - 1;    // 72
+        private const int PTR_FRAME_PX = 300;
 
-    public void LoadAssetsEmbedded()
-    {
-        DisposeAssets();
+        // Radios (fracción del radio del knob)
+        private const float TickOuterR = 0.70f;
+        private const float TickInnerR = 0.64f;
+        private const float LabelRadiusR = 0.80f;
 
-        var asm = typeof(AnalogKnobWindow).Assembly;
-        _bg512 = Embedded.LoadBitmap(asm, "KnobBg512.png");
-        _pointerSheet = Embedded.LoadBitmap(asm, "knob_pointer_sprite_300x300_x73_clockwise263.png");
-        _top512 = Embedded.LoadBitmap(asm, "KnobTop512.png");
-    }
+        // ---------- Back buffer ----------
+        private Bitmap? _backBuffer;
+        private int _bufW, _bufH;
 
-    public void DisposeAssets()
-    {
-        _bg512?.Dispose(); _bg512 = null;
-        _pointerSheet?.Dispose(); _pointerSheet = null;
-        _top512?.Dispose(); _top512 = null;
-    }
+        // ---------- Rango / etiqueta ----------
+        private readonly double _minDb, _maxDb;
+        private readonly string _label;
 
-    // ---- Window lifetime ----------------------------------------------------
+        // ---------- Win32 ----------
+        private const string WC_STATIC = "STATIC";
+        private const int WS_CHILD = 0x40000000;
+        private const int WS_VISIBLE = 0x10000000;
+        private const int SS_NOTIFY = 0x0100;
 
-    public bool Create(IntPtr parent, int x, int y, int w, int h)
-    {
-        _parent = parent;
-        _x = x; _y = y; _w = w; _h = h;
+        private const int GWL_WNDPROC = -4;
+        private const int WM_PAINT = 0x000F;
+        private const int WM_LBUTTONDOWN = 0x0201;
+        private const int WM_LBUTTONUP = 0x0202;
+        private const int WM_MOUSEMOVE = 0x0200;
+        private const int WM_MOUSEWHEEL = 0x020A;
+        private const int WM_LBUTTONDBLCLK = 0x0203;
+        private const int WM_ERASEBKGND = 0x0014;
+        private const int WHEEL_DELTA = 120;
 
-        _hwnd = CreateWindowEx(
-            0, WC_STATIC, null,
-            WS_CHILD | WS_VISIBLE | SS_NOTIFY,
-            _x, _y, _w, _h,
-            _parent, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+        // ---------- Estado / interacción ----------
+        private int _x, _y, _w, _h;
+        private bool _editing;
+        private int _dragStartY;
+        private double _dragStartNorm;
 
-        if (_hwnd == IntPtr.Zero) return false;
+        private readonly Func<float> _getNormalized;
+        private readonly Action _beginEdit;
+        private readonly Action<double> _performEdit;
+        private readonly Action _endEdit;
 
-        _dpi = GetDpiForWindow(_hwnd); // must be after CreateWindowEx
+        private IntPtr _parent;
+        private IntPtr _hwnd;
+        private IntPtr _origWndProc = IntPtr.Zero;
+        private readonly WndProc _proc;
 
-        _origWndProc = SetWindowLongPtr(_hwnd, GWL_WNDPROC, Marshal.GetFunctionPointerForDelegate(_proc));
-        InvalidateRect(_hwnd, IntPtr.Zero, true);
-        return true;
-    }
-
-    public void Destroy()
-    {
-        // Restore original WndProc before destroy (not strictly required, but good hygiene)
-        if (_hwnd != IntPtr.Zero && _origWndProc != IntPtr.Zero)
+        public AnalogKnobWindow(
+            Func<float> getNormalized,
+            Action beginEdit,
+            Action<double> performEdit,
+            Action endEdit,
+            double minDb, double maxDb,
+            string label,
+            string faceResName,
+            string topResName,
+            string pointerResName)
         {
-            SetWindowLongPtr(_hwnd, GWL_WNDPROC, _origWndProc);
-            _origWndProc = IntPtr.Zero;
+            _getNormalized = getNormalized;
+            _beginEdit = beginEdit;
+            _performEdit = performEdit;
+            _endEdit = endEdit;
+
+            _minDb = minDb;
+            _maxDb = maxDb;
+            _label = label;
+
+            _faceResName = faceResName;
+            _topResName = topResName;
+            _pointerResName = pointerResName;
+
+            _proc = WndProcImpl;
         }
 
-        if (_hwnd != IntPtr.Zero)
+        // El contenedor nos pasa su fondo (para “recortar” exacto bajo el knob)
+        public void SetContainerBackgroundReference(Bitmap? bg, int containerW, int containerH)
         {
-            DestroyWindow(_hwnd);
-            _hwnd = IntPtr.Zero;
+            _containerBg = bg;
+            _containerW = Math.Max(1, containerW);
+            _containerH = Math.Max(1, containerH);
+            Refresh();
         }
 
-        _backBuffer?.Dispose();
-        _backBuffer = null;
-        _bufW = _bufH = 0;
-    }
-
-    public void SetBounds(int x, int y, int w, int h)
-    {
-        _x = x; _y = y; _w = w; _h = h;
-
-        if (_hwnd != IntPtr.Zero)
-            MoveWindow(_hwnd, _x, _y, _w, _h, true);
-
-        EnsureBackBuffer(_w, _h);
-    }
-
-    public void Refresh()
-    {
-        if (_hwnd != IntPtr.Zero)
-            InvalidateRect(_hwnd, IntPtr.Zero, false);
-    }
-
-    // ---- WndProc / rendering / input ---------------------------------------
-
-    private IntPtr WndProcImpl(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
-    {
-        try
+        // ---------- Recursos ----------
+        private void EnsureAssetsLoaded()
         {
-            switch (msg)
+            if (_face512 == null) { try { _face512 = Embedded.LoadBitmap(typeof(AnalogKnobWindow).Assembly, _faceResName); } catch { } }
+            if (_top512 == null) { try { _top512 = Embedded.LoadBitmap(typeof(AnalogKnobWindow).Assembly, _topResName); } catch { } }
+            if (_pointerSheet == null) { try { _pointerSheet = Embedded.LoadBitmap(typeof(AnalogKnobWindow).Assembly, _pointerResName); } catch { } }
+        }
+
+        public void DisposeAssets()
+        {
+            _face512?.Dispose(); _face512 = null;
+            _top512?.Dispose(); _top512 = null;
+            _pointerSheet?.Dispose(); _pointerSheet = null;
+        }
+
+        // ---------- Vida de la ventana ----------
+        public bool Create(IntPtr parent, int x, int y, int w, int h)
+        {
+            _parent = parent;
+            _x = x; _y = y; _w = w; _h = h;
+
+            _hwnd = CreateWindowEx(
+                0, WC_STATIC, null,
+                WS_CHILD | WS_VISIBLE | SS_NOTIFY,
+                _x, _y, _w, _h,
+                _parent, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+
+            if (_hwnd == IntPtr.Zero) return false;
+
+            _origWndProc = SetWindowLongPtr(_hwnd, GWL_WNDPROC, Marshal.GetFunctionPointerForDelegate(_proc));
+            EnsureAssetsLoaded();
+            InvalidateRect(_hwnd, IntPtr.Zero, true); // erase
+            return true;
+        }
+
+        public void Destroy()
+        {
+            if (_hwnd != IntPtr.Zero && _origWndProc != IntPtr.Zero)
             {
-                case WM_PAINT:
-                    {
-                        var ps = new PAINTSTRUCT();
-                        var hdc = BeginPaint(_hwnd, out ps);
-                        try
+                SetWindowLongPtr(_hwnd, GWL_WNDPROC, _origWndProc);
+                _origWndProc = IntPtr.Zero;
+            }
+            if (_hwnd != IntPtr.Zero)
+            {
+                DestroyWindow(_hwnd);
+                _hwnd = IntPtr.Zero;
+            }
+
+            _backBuffer?.Dispose(); _backBuffer = null;
+            _bufW = _bufH = 0;
+            DisposeAssets();
+        }
+
+        public void SetBounds(int x, int y, int w, int h)
+        {
+            _x = x; _y = y; _w = w; _h = h;
+            if (_hwnd != IntPtr.Zero) MoveWindow(_hwnd, _x, _y, _w, _h, true);
+            EnsureBackBuffer(_w, _h);
+        }
+
+        public void Refresh()
+        {
+            if (_hwnd != IntPtr.Zero) InvalidateRect(_hwnd, IntPtr.Zero, true);
+        }
+
+        // ---------- WndProc ----------
+        private IntPtr WndProcImpl(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
+        {
+            try
+            {
+                switch (msg)
+                {
+                    case WM_PAINT:
                         {
-                            EnsureBackBuffer(_w, _h);
-                            if (_backBuffer == null) break;
-
-                            using (var gb = Graphics.FromImage(_backBuffer))
+                            var ps = new PAINTSTRUCT();
+                            var hdc = BeginPaint(_hwnd, out ps);
+                            try
                             {
-                                // High-quality compositing
-                                gb.SmoothingMode = SmoothingMode.HighQuality;
-                                gb.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                                gb.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                                gb.CompositingQuality = CompositingQuality.HighQuality;
-                                gb.CompositingMode = CompositingMode.SourceOver;
+                                EnsureBackBuffer(_w, _h);
+                                if (_backBuffer == null) break;
 
-                                // Clear backbuffer with transparent pixels
-                                gb.Clear(Color.Transparent);
+                                using (var gb = Graphics.FromImage(_backBuffer))
+                                {
+                                    gb.SmoothingMode = SmoothingMode.HighQuality;
+                                    gb.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                                    gb.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                                    gb.CompositingQuality = CompositingQuality.HighQuality;
+                                    gb.CompositingMode = CompositingMode.SourceOver;
 
-                                RenderKnob(gb);
+                                    // 1) slice del fondo (sin rastro)
+                                    PaintBackgroundSlice(gb);
+
+                                    // 2) knob completo
+                                    RenderKnob(gb);
+                                }
+
+                                using (var g = Graphics.FromHdc(hdc))
+                                {
+                                    g.CompositingMode = CompositingMode.SourceOver;
+                                    g.DrawImageUnscaled(_backBuffer, 0, 0);
+                                }
                             }
-
-                            using (var g = Graphics.FromHdc(hdc))
-                            {
-                                g.DrawImageUnscaled(_backBuffer, 0, 0);
-                            }
+                            finally { EndPaint(_hwnd, ref ps); }
+                            return (IntPtr)0;
                         }
-                        finally { EndPaint(_hwnd, ref ps); }
 
-                        return (IntPtr)0;
-                    }
-
-                case WM_LBUTTONDOWN:
-                    {
+                    case WM_LBUTTONDOWN:
                         SetCapture(_hwnd);
                         _editing = true;
                         _beginEdit();
                         _dragStartY = (short)((lParam.ToInt64() >> 16) & 0xFFFF);
                         _dragStartNorm = Math.Clamp(_getNormalized(), 0.0f, 1.0f);
                         return IntPtr.Zero;
-                    }
 
-                case WM_MOUSEMOVE:
-                    {
+                    case WM_MOUSEMOVE:
                         if (_editing)
                         {
                             int y = (short)((lParam.ToInt64() >> 16) & 0xFFFF);
                             int dy = y - _dragStartY;
-
-                            // Vertical drag: ~200 px for full range
                             const double pixelsForFullRange = 200.0;
                             double newNorm = Math.Clamp(_dragStartNorm - dy / pixelsForFullRange, 0.0, 1.0);
                             newNorm = QuantizeTo1dB(newNorm);
@@ -247,10 +234,8 @@ internal sealed class AnalogKnobWindow
                             Refresh();
                         }
                         return IntPtr.Zero;
-                    }
 
-                case WM_LBUTTONUP:
-                    {
+                    case WM_LBUTTONUP:
                         if (_editing)
                         {
                             _editing = false;
@@ -258,178 +243,260 @@ internal sealed class AnalogKnobWindow
                             ReleaseCapture();
                         }
                         return IntPtr.Zero;
-                    }
 
-                case WM_MOUSEWHEEL:
-                    {
-                        // 1 dB per notch
-                        int delta = (short)((wParam.ToInt64() >> 16) & 0xFFFF);
-                        int ticks = delta / WHEEL_DELTA;
-                        double n = _getNormalized() + ticks * (1.0 / PTR_STEPS);
-                        n = QuantizeTo1dB(n);
-                        _beginEdit(); _performEdit(n); _endEdit();
-                        Refresh();
-                        return IntPtr.Zero;
-                    }
+                    case WM_MOUSEWHEEL:
+                        {
+                            int delta = (short)((wParam.ToInt64() >> 16) & 0xFFFF);
+                            int ticks = delta / WHEEL_DELTA;
+                            double n = _getNormalized() + ticks * (1.0 / PTR_STEPS);
+                            n = QuantizeTo1dB(n);
+                            _beginEdit(); _performEdit(n); _endEdit();
+                            Refresh();
+                            return (IntPtr)0;
+                        }
 
-                case WM_LBUTTONDBLCLK:
-                    {
-                        // Reset to 0 dB
-                        double norm0 = (0.0 - _minDb) / (_maxDb - _minDb); // 60/72 for -60..+12
-                        norm0 = QuantizeTo1dB(norm0);
-                        _beginEdit(); _performEdit(norm0); _endEdit();
-                        Refresh();
-                        return IntPtr.Zero;
-                    }
+                    case WM_LBUTTONDBLCLK:
+                        {
+                            double norm0 = (0.0 - _minDb) / (_maxDb - _minDb);
+                            norm0 = QuantizeTo1dB(norm0);
+                            _beginEdit(); _performEdit(norm0); _endEdit();
+                            Refresh();
+                            return (IntPtr)0;
+                        }
 
-                case WM_ERASEBKGND:
-                    // Avoid background erase to prevent flicker (we draw the full surface)
-                    return (IntPtr)1;
+                    case WM_ERASEBKGND:
+                        return (IntPtr)1; // todo se pinta en WM_PAINT
+                }
+            }
+            catch { /* no romper host */ }
 
-                case WM_DPICHANGED:
-                    {
-                        // LOWORD contains the new DPI (X); HIWORD is Y (usually equal)
-                        _dpi = (int)(wParam.ToInt64() & 0xFFFF);
-                        Refresh();
-                        return (IntPtr)0;
-                    }
+            return CallWindowProc(_origWndProc, hWnd, msg, wParam, lParam);
+        }
+
+        // ---------- Pintado ----------
+        private void PaintBackgroundSlice(Graphics g)
+        {
+            if (_containerBg == null || _containerW <= 0 || _containerH <= 0)
+            {
+                g.Clear(Color.FromArgb(22, 40, 68)); // fallback
+                return;
+            }
+
+            int srcX = (int)Math.Round((double)_x / _containerW * _containerBg.Width);
+            int srcY = (int)Math.Round((double)_y / _containerH * _containerBg.Height);
+            int srcW = (int)Math.Round((double)_w / _containerW * _containerBg.Width);
+            int srcH = (int)Math.Round((double)_h / _containerH * _containerBg.Height);
+
+            srcX = Math.Clamp(srcX, 0, Math.Max(0, _containerBg.Width - 1));
+            srcY = Math.Clamp(srcY, 0, Math.Max(0, _containerBg.Height - 1));
+            srcW = Math.Max(1, Math.Min(srcW, _containerBg.Width - srcX));
+            srcH = Math.Max(1, Math.Min(srcH, _containerBg.Height - srcY));
+
+            g.DrawImage(_containerBg, new Rectangle(0, 0, _w, _h),
+                        new Rectangle(srcX, srcY, srcW, srcH), GraphicsUnit.Pixel);
+        }
+
+        private void RenderKnob(Graphics g)
+        {
+            EnsureAssetsLoaded();
+
+            int side = Math.Min(_w, _h);
+            int offX = (_w - side) / 2;
+            int offY = (_h - side) / 2;
+
+            // margen interior para que entren ticks/labels dentro del aro
+            float inset = Math.Max(12f, side * 0.06f);
+            var content = new RectangleF(offX + inset, offY + inset, side - 2 * inset, side - 2 * inset);
+
+            // 1) Ticks y números (debajo del aro)
+            DrawTicksAndNumbers(g, content);
+
+            // 2) Cara / aro
+            if (_face512 != null) g.DrawImage(_face512, content);
+
+            // 3) Puntero (sprite)
+            DrawPointer(g, content);
+
+            // 4) Tapa color
+            if (_top512 != null) g.DrawImage(_top512, content);
+
+            // 5) Textos (valor y etiqueta)
+            DrawTexts(g, content);
+        }
+
+        private void DrawTicksAndNumbers(Graphics g, RectangleF content)
+        {
+            float cx = content.Left + content.Width * 0.5f;
+            float cy = content.Top + content.Height * 0.5f;
+            float R = Math.Min(content.Width, content.Height) * 0.5f;
+
+            using var penTick = new Pen(Color.FromArgb(190, 220, 220, 220), 1f);
+            using var f = new Font(FontFamily.GenericSansSerif, 9f, FontStyle.Bold, GraphicsUnit.Pixel);
+            using var brushTxt = new SolidBrush(Color.FromArgb(235, 235, 235));
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+            double range = _maxDb - _minDb;
+            double step = ChooseNiceStep(range);
+
+            // extremos + intermedios
+            DrawOne(_minDb);
+            double first = Math.Ceiling(_minDb / step) * step;
+            if (Math.Abs(first - _minDb) < 1e-6) first = _minDb;
+            for (double v = first; v < _maxDb - 1e-6; v += step)
+                DrawOne(v);
+            DrawOne(_maxDb);
+
+            void DrawOne(double db)
+            {
+                float ang = AngleDegFromDb(db, _minDb, _maxDb);
+                double rad = ang * Math.PI / 180.0;
+
+                float x0 = cx + (float)(Math.Cos(rad) * (R * TickInnerR));
+                float y0 = cy + (float)(Math.Sin(rad) * (R * TickInnerR));
+                float x1 = cx + (float)(Math.Cos(rad) * (R * TickOuterR));
+                float y1 = cy + (float)(Math.Sin(rad) * (R * TickOuterR));
+                g.DrawLine(penTick, x0, y0, x1, y1);
+
+                string label = DbToLabel(db);
+                float lr = R * LabelRadiusR;
+                float tx = cx + (float)(Math.Cos(rad) * lr);
+                float ty = cy + (float)(Math.Sin(rad) * lr);
+                var sz = g.MeasureString(label, f);
+                g.DrawString(label, f, brushTxt, tx - sz.Width / 2f, ty - sz.Height / 2f);
             }
         }
-        catch
+
+        private void DrawPointer(Graphics g, RectangleF content)
         {
-            // Swallow exceptions to keep host stable
+            if (_pointerSheet == null) return;
+            if (_pointerSheet.Height != PTR_FRAME_PX ||
+                _pointerSheet.Width != PTR_FRAME_PX * PTR_FRAMES) return;
+
+            double norm = Math.Clamp(_getNormalized(), 0.0f, 1.0f);
+            int frame = FrameFromNorm(norm, _minDb, _maxDb); // ← mapeo exacto min→0, max→72
+
+            int srcX = frame * PTR_FRAME_PX;
+            var src = new Rectangle(srcX, 0, PTR_FRAME_PX, PTR_FRAME_PX);
+
+            float scale = content.Width / 512f; // el sprite está pensado para encajar sobre 512
+            int dstSide = (int)Math.Round(PTR_FRAME_PX * scale);
+            int cx = (int)Math.Round(content.Left + content.Width * 0.5f);
+            int cy = (int)Math.Round(content.Top + content.Height * 0.5f);
+
+            var dst = new Rectangle(cx - dstSide / 2, cy - dstSide / 2, dstSide, dstSide);
+            g.DrawImage(_pointerSheet, dst, src, GraphicsUnit.Pixel);
         }
 
-        return CallWindowProc(_origWndProc, hWnd, msg, wParam, lParam);
-    }
-
-    // ---- Rendering helpers --------------------------------------------------
-
-    private void RenderKnob(Graphics gb)
-    {
-        // If any asset is missing, nothing to render
-        if (_bg512 == null || _pointerSheet == null || _top512 == null) return;
-
-        // DIP → px using the Graphics DPI (more reliable than cached _dpi in some hosts)
-        float scalePxPerDip = gb.DpiX / 96f;
-
-        // Target size for background/top in px (512 DIP → 512 * scale px)
-        int targetPx = (int)Math.Round(BG_PX * scalePxPerDip);
-
-        // Final side length must fit the window (square centered)
-        int side = Math.Min(targetPx, Math.Min(_w, _h));
-        float s = side / (float)BG_PX;
-
-        int offX = (_w - side) / 2;
-        int offY = (_h - side) / 2;
-
-        // 1) Background
-        gb.DrawImage(_bg512, new Rectangle(offX, offY, side, side));
-
-        // 2) Pointer frame (map normalized value → frame index 0..72)
-        double norm = Math.Clamp(_getNormalized(), 0.0f, 1.0f);
-        int frame = (int)Math.Round(norm * PTR_STEPS);
-        frame = Math.Max(0, Math.Min(PTR_STEPS, frame));
-
-        int srcX = frame * PTR_FRAME_PX;
-        var src = new Rectangle(srcX, 0, PTR_FRAME_PX, PTR_FRAME_PX);
-
-        int ptrSize = (int)Math.Round(PTR_FRAME_PX * s);
-        int cx = offX + side / 2;
-        int cy = offY + side / 2;
-        var dst = new Rectangle(cx - ptrSize / 2, cy - ptrSize / 2, ptrSize, ptrSize);
-
-        gb.DrawImage(_pointerSheet, dst, src, GraphicsUnit.Pixel);
-
-        // 3) Top overlay
-        gb.DrawImage(_top512, new Rectangle(offX, offY, side, side));
-
-        // 4) dB overlay text
-        DrawDbOverlay(gb, offX, offY, norm);
-    }
-
-    private void DrawDbOverlay(Graphics gb, int offX, int offY, double norm)
-    {
-        double db = _minDb + norm * (_maxDb - _minDb);
-        string txt = $"{db:+0.0;-0.0;0.0} dB";
-
-        gb.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-
-        // Use pixel font size to avoid double-scaling under different DPI
-        float fontPx = 16f * (gb.DpiX / 96f);
-        using var f = new Font(FontFamily.GenericSansSerif, fontPx, FontStyle.Bold, GraphicsUnit.Pixel);
-
-        var pt = new PointF(offX + 12, offY + 12);
-
-        using (var shadow = new SolidBrush(Color.FromArgb(140, 0, 0, 0)))
-            gb.DrawString(txt, f, shadow, new PointF(pt.X + 1, pt.Y + 1));
-
-        // Do NOT dispose Brushes.White (it's a shared singleton)
-        gb.DrawString(txt, f, Brushes.White, pt);
-    }
-
-    // ---- Utilities ----------------------------------------------------------
-
-    private static double QuantizeTo1dB(double n)
-    {
-        n = Math.Clamp(n, 0.0, 1.0);
-        return Math.Round(n * PTR_STEPS) / PTR_STEPS; // 1/72
-    }
-
-    private void EnsureBackBuffer(int w, int h)
-    {
-        if (w <= 0 || h <= 0) return;
-
-        if (_backBuffer == null || _bufW != w || _bufH != h)
+        private void DrawTexts(Graphics g, RectangleF content)
         {
-            _backBuffer?.Dispose();
-            _backBuffer = new Bitmap(Math.Max(1, w), Math.Max(1, h),
-                System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
-            _bufW = w; _bufH = h;
+            double norm = Math.Clamp(_getNormalized(), 0.0f, 1.0f);
+            double db = _minDb + norm * (_maxDb - _minDb);
+
+            string val = $"{db:+0.0;-0.0;0.0} dB";
+            using var fVal = new Font(FontFamily.GenericSansSerif, Math.Max(10f, content.Width * 0.08f), FontStyle.Bold, GraphicsUnit.Pixel);
+            using var fLbl = new Font(FontFamily.GenericSansSerif, Math.Max(12f, content.Width * 0.10f), FontStyle.Bold, GraphicsUnit.Pixel);
+
+            using var shadow = new SolidBrush(Color.FromArgb(150, 0, 0, 0));
+            using var white = new SolidBrush(Color.White);
+
+            var valPt = new PointF(content.Left - 10, content.Top -10);
+            g.DrawString(val, fVal, shadow, valPt.X + 1, valPt.Y + 1);
+            g.DrawString(val, fVal, white, valPt);
+
+            var size = g.MeasureString(_label, fLbl);
+            var lblPt = new PointF(content.Left + (content.Width - size.Width) * 0.5f, content.Bottom - size.Height + 10);
+            g.DrawString(_label, fLbl, shadow, lblPt.X + 1, lblPt.Y + 1);
+            g.DrawString(_label, fLbl, white, lblPt);
         }
+
+        // ---------- Utilidades ----------
+        private static double ChooseNiceStep(double range)
+        {
+            if (range >= 48) return 10;
+            if (range >= 30) return 6;
+            if (range >= 24) return 5;
+            if (range >= 18) return 3;
+            if (range >= 12) return 2;
+            return 1;
+        }
+
+        private static string DbToLabel(double db)
+            => Math.Abs(db) < 0.5 ? "0" : (db > 0 ? $"+{Math.Round(db)}" : $"{Math.Round(db)}");
+
+        private static int FrameFromNorm(double norm, double minDb, double maxDb)
+        {
+            double db = minDb + norm * (maxDb - minDb);
+            return FrameFromDb(db, minDb, maxDb);
+        }
+
+        private static int FrameFromDb(double db, double minDb, double maxDb)
+        {
+            double t = (db - minDb) / (maxDb - minDb);
+            t = Math.Clamp(t, 0.0, 1.0);
+            int frame = (int)Math.Round(t * PTR_STEPS); // 0..72
+            return Math.Max(0, Math.Min(PTR_STEPS, frame));
+        }
+
+        private static float AngleDegFromDb(double db, double minDb, double maxDb)
+        {
+            double t = (db - minDb) / (maxDb - minDb);
+            t = Math.Clamp(t, 0.0, 1.0);
+            return StartDeg + (float)(t * SweepDeg);
+        }
+
+        private static double QuantizeTo1dB(double n)
+            => Math.Round(Math.Clamp(n, 0.0, 1.0) * PTR_STEPS) / PTR_STEPS;
+
+        private void EnsureBackBuffer(int w, int h)
+        {
+            if (w <= 0 || h <= 0) return;
+            if (_backBuffer == null || _bufW != w || _bufH != h)
+            {
+                _backBuffer?.Dispose();
+                _backBuffer = new Bitmap(Math.Max(1, w), Math.Max(1, h),
+                    System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+                _bufW = w; _bufH = h;
+            }
+        }
+
+        // ---------- P/Invoke ----------
+        private delegate IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr CreateWindowEx(int dwExStyle, string lpClassName, string? lpWindowName, int dwStyle,
+            int X, int Y, int nWidth, int nHeight, IntPtr hWndParent, IntPtr hMenu, IntPtr hInstance, IntPtr lpParam);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool DestroyWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
+
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+        private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr CallWindowProc(IntPtr lpPrevWndFunc, IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")] private static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
+        [DllImport("user32.dll")] private static extern IntPtr BeginPaint(IntPtr hWnd, out PAINTSTRUCT lpPaint);
+        [DllImport("user32.dll")] private static extern bool EndPaint(IntPtr hWnd, ref PAINTSTRUCT lpPaint);
+        [DllImport("user32.dll")] private static extern IntPtr SetCapture(IntPtr hWnd);
+        [DllImport("user32.dll")] private static extern bool ReleaseCapture();
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct PAINTSTRUCT
+        {
+            public IntPtr hdc;
+            public bool fErase;
+            public RECT rcPaint;
+            public bool fRestore;
+            public bool fIncUpdate;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
+            public byte[] rgbReserved;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT { public int left, top, right, bottom; }
     }
-
-    // ---- P/Invoke -----------------------------------------------------------
-
-    private delegate IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern IntPtr CreateWindowEx(
-        int dwExStyle, string lpClassName, string? lpWindowName, int dwStyle,
-        int X, int Y, int nWidth, int nHeight,
-        IntPtr hWndParent, IntPtr hMenu, IntPtr hInstance, IntPtr lpParam);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool DestroyWindow(IntPtr hWnd);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
-
-    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
-    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern IntPtr CallWindowProc(IntPtr lpPrevWndFunc, IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("user32.dll")] private static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
-    [DllImport("user32.dll")] private static extern IntPtr BeginPaint(IntPtr hWnd, out PAINTSTRUCT lpPaint);
-    [DllImport("user32.dll")] private static extern bool EndPaint(IntPtr hWnd, ref PAINTSTRUCT lpPaint);
-    [DllImport("user32.dll")] private static extern IntPtr SetCapture(IntPtr hWnd);
-    [DllImport("user32.dll")] private static extern bool ReleaseCapture();
-    [DllImport("user32.dll")] private static extern int GetDpiForWindow(IntPtr hWnd);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct PAINTSTRUCT
-    {
-        public IntPtr hdc;
-        public bool fErase;
-        public RECT rcPaint;
-        public bool fRestore;
-        public bool fIncUpdate;
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
-        public byte[] rgbReserved;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct RECT { public int left, top, right, bottom; }
 }

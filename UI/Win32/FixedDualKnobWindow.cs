@@ -1,18 +1,12 @@
 ﻿using System;
+using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 
 namespace NPlug.SimpleGain.UI.Win32
 {
-    public enum KnobColor { Red, LightGray }
-
-    /// <summary>
-    /// Win32 host container for TWO knobs side by side (left = knob1, right = knob2).
-    /// No margins, each knob is centered and sized to the largest square inside its half.
-    /// Subclasses the host window to avoid flicker and relayouts children on resize.
-    /// </summary>
     internal sealed class FixedDualKnobWindow
     {
-        // ---------------- Win32 constants ----------------
         private const string WC_STATIC = "STATIC";
         private const int WS_CHILD = 0x40000000;
         private const int WS_VISIBLE = 0x10000000;
@@ -20,95 +14,54 @@ namespace NPlug.SimpleGain.UI.Win32
 
         private const int WM_ERASEBKGND = 0x0014;
         private const int WM_SIZE = 0x0005;
+        private const int WM_PAINT = 0x000F;
 
         private const int GWL_WNDPROC = -4;
 
-        // ---------------- Handles / state ----------------
         private IntPtr _parent;
-        private IntPtr _hwnd;                 // container window
+        private IntPtr _hwnd;
         private IntPtr _origWndProc = IntPtr.Zero;
 
-        private int _width;
-        private int _height;
+        private int _width = 1024;
+        private int _height = 512;
 
-        private readonly AnalogKnobWindow _knobLeft;
-        private readonly AnalogKnobWindow _knobRight;
+        private readonly AnalogKnobWindow _leftKnob;
+        private readonly AnalogKnobWindow _rightKnob;
+
+        private Bitmap? _bg1024x512;
+
+        private const int OuterPad = 18;
+        private const int MiddleGap = 24;
+        private const int InnerPad = 24;
 
         private readonly WndProc _wndProcDelegate;
 
-        // ---------------- Public API ----------------
-
-        public readonly struct KnobSpec
-        {
-            public readonly string Label;
-            public readonly double MinDb, MaxDb;
-            public readonly KnobColor Color;
-            public readonly Func<float> GetNormalized;
-            public readonly Action BeginEdit;
-            public readonly Action<double> PerformEdit;
-            public readonly Action EndEdit;
-
-            public KnobSpec(
-                string label,
-                double minDb, double maxDb,
-                KnobColor color,
-                Func<float> getNormalized,
-                Action beginEdit,
-                Action<double> performEdit,
-                Action endEdit)
-            {
-                Label = label;
-                MinDb = minDb;
-                MaxDb = maxDb;
-                Color = color;
-                GetNormalized = getNormalized;
-                BeginEdit = beginEdit;
-                PerformEdit = performEdit;
-                EndEdit = endEdit;
-            }
-        }
-
-        /// <summary>
-        /// Creates the dual container and internally constructs two AnalogKnobWindow children.
-        /// </summary>
         public FixedDualKnobWindow(
-            int width, int height,
-            KnobSpec knob1,     // left (e.g., GAIN)
-            KnobSpec knob2)     // right (e.g., OUTPUT)
+            Func<float> getNormalizedLeft,
+            Action beginLeft, Action<double> performLeft, Action endLeft,
+            double minDbLeft, double maxDbLeft,
+            Func<float> getNormalizedRight,
+            Action beginRight, Action<double> performRight, Action endRight,
+            double minDbRight, double maxDbRight
+        )
         {
-            _width = width;
-            _height = height;
-
             _wndProcDelegate = CustomWndProc;
 
-            // Create left knob (label/color aware)
-            _knobLeft = new AnalogKnobWindow(
-                getNormalized: knob1.GetNormalized,
-                beginEdit: () => knob1.BeginEdit(),
-                performEdit: v => { knob1.PerformEdit(v); _knobLeft.Refresh(); },
-                endEdit: () => knob1.EndEdit(),
-                minDb: knob1.MinDb,
-                maxDb: knob1.MaxDb
-                //label: knob1.Label,
-                //color: knob1.Color
-            );
+            _leftKnob = new AnalogKnobWindow(
+                getNormalizedLeft, beginLeft, performLeft, endLeft,
+                minDbLeft, maxDbLeft, "GAIN",
+                faceResName: "KnobFace512.png",
+                topResName: "KnobTop512.png",
+                pointerResName: "knob_pointer_sprite_300x300_x73_clockwise263.png");
 
-            // Create right knob (label/color aware)
-            _knobRight = new AnalogKnobWindow(
-                getNormalized: knob2.GetNormalized,
-                beginEdit: () => knob2.BeginEdit(),
-                performEdit: v => { knob2.PerformEdit(v); _knobRight.Refresh(); },
-                endEdit: () => knob2.EndEdit(),
-                minDb: knob2.MinDb,
-                maxDb: knob2.MaxDb
-                //label: knob2.Label,
-                //color: knob2.Color
-            );
+            _rightKnob = new AnalogKnobWindow(
+                getNormalizedRight, beginRight, performRight, endRight,
+                minDbRight, maxDbRight, "OUTPUT",
+                faceResName: "KnobFace512.png",
+                topResName: "KnobTop512_gray.png",
+                pointerResName: "knob_pointer_sprite_300x300_x73_clockwise263_gray.png");
         }
 
-        /// <summary>
-        /// Creates the container as a child of <paramref name="parentHwnd"/> and attaches both knobs.
-        /// </summary>
         public bool AttachToParent(IntPtr parentHwnd)
         {
             if (parentHwnd == IntPtr.Zero) return false;
@@ -122,38 +75,26 @@ namespace NPlug.SimpleGain.UI.Win32
 
             if (_hwnd == IntPtr.Zero) return false;
 
-            // Subclass
-            _origWndProc = SetWindowLongPtr(_hwnd, GWL_WNDPROC,
-                Marshal.GetFunctionPointerForDelegate(_wndProcDelegate));
+            _origWndProc = SetWindowLongPtr(_hwnd, GWL_WNDPROC, Marshal.GetFunctionPointerForDelegate(_wndProcDelegate));
 
-            // Create both knob children and load assets
-            _knobLeft.Create(_hwnd, 0, 0, _width / 2, _height);
-            _knobRight.Create(_hwnd, _width / 2, 0, _width / 2, _height);
+            try { _bg1024x512 = Embedded.LoadBitmap(typeof(FixedDualKnobWindow).Assembly, "Bg1024x512.png"); } catch { }
 
-            try
-            {
-                _knobLeft.LoadAssetsEmbedded();
-                _knobRight.LoadAssetsEmbedded();
-            }
-            catch
-            {
-                // swallow to avoid crashing host (assets optional)
-            }
+            _leftKnob.Create(_hwnd, 0, 0, _width / 2, _height);
+            _rightKnob.Create(_hwnd, _width / 2, 0, _width / 2, _height);
 
-            LayoutKnobs();
+            // dar a los knobs referencia del fondo y tamaño del contenedor
+            PropagateBackgroundRef();
+
+            LayoutChildren();
             return true;
         }
 
-        /// <summary>
-        /// Destroys child windows and releases resources.
-        /// </summary>
         public void Destroy()
         {
-            _knobLeft.Destroy();
-            _knobLeft.DisposeAssets();
+            _leftKnob.Destroy();
+            _rightKnob.Destroy();
 
-            _knobRight.Destroy();
-            _knobRight.DisposeAssets();
+            _bg1024x512?.Dispose(); _bg1024x512 = null;
 
             if (_hwnd != IntPtr.Zero)
             {
@@ -169,9 +110,6 @@ namespace NPlug.SimpleGain.UI.Win32
             _parent = IntPtr.Zero;
         }
 
-        /// <summary>
-        /// Sets container bounds; relayouts both knobs in two columns.
-        /// </summary>
         public void SetBounds(int x, int y, int width, int height)
         {
             _width = width;
@@ -180,77 +118,96 @@ namespace NPlug.SimpleGain.UI.Win32
             if (_hwnd != IntPtr.Zero)
             {
                 MoveWindow(_hwnd, x, y, _width, _height, true);
-                LayoutKnobs();
+                LayoutChildren();
+                PropagateBackgroundRef();
+                InvalidateRect(_hwnd, IntPtr.Zero, false);
             }
         }
 
-        /// <summary>
-        /// Requests a repaint for both knobs.
-        /// </summary>
         public void RefreshUI()
         {
-            _knobLeft.Refresh();
-            _knobRight.Refresh();
+            _leftKnob.Refresh();
+            _rightKnob.Refresh();
+            if (_hwnd != IntPtr.Zero) InvalidateRect(_hwnd, IntPtr.Zero, false);
         }
 
-        // ---------------- Layout ----------------
-
-        /// <summary>
-        /// Splits client area in two equal columns and centers a square knob in each.
-        /// </summary>
-        private void LayoutKnobs()
+        private void LayoutChildren()
         {
             if (_hwnd == IntPtr.Zero) return;
 
-            int colW = Math.Max(1, _width / 2);
-            int side = Math.Min(colW, _height);
-            int offY = (_height - side) / 2;
+            int innerW = Math.Max(1, _width - 2 * OuterPad);
+            int innerH = Math.Max(1, _height - 2 * OuterPad);
 
-            // Left knob rectangle (column 1)
-            int leftX = (colW - side) / 2;
-            _knobLeft.SetBounds(leftX, offY, side, side);
+            int columnW = (innerW - MiddleGap) / 2;
+            int side = Math.Max(1, Math.Min(columnW, innerH) - InnerPad);
 
-            // Right knob rectangle (column 2)
-            int rightX = colW + (colW - side) / 2;
-            _knobRight.SetBounds(rightX, offY, side, side);
+            // Left column
+            int leftX = OuterPad;
+            int leftY = OuterPad;
+            _leftKnob.SetBounds(leftX, leftY, side, side);
+
+            // Right column
+            int rightX = OuterPad + columnW + MiddleGap;
+            int rightY = OuterPad;
+            _rightKnob.SetBounds(rightX, rightY, side, side);
         }
 
-        // ---------------- WndProc ----------------
+        private void PropagateBackgroundRef()
+        {
+            // cada knob necesita: ref al bitmap de fondo y tamaño actual del contenedor
+            _leftKnob.SetContainerBackgroundReference(_bg1024x512, _width, _height);
+            _rightKnob.SetContainerBackgroundReference(_bg1024x512, _width, _height);
+        }
 
         private IntPtr CustomWndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
         {
             switch (msg)
             {
                 case WM_ERASEBKGND:
-                    // Child draws everything; avoid flicker.
                     return (IntPtr)1;
 
                 case WM_SIZE:
+                    int w = (int)(lParam.ToInt64() & 0xFFFF);
+                    int h = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
+                    if (w > 0 && h > 0)
                     {
-                        int w = (int)(lParam.ToInt64() & 0xFFFF);
-                        int h = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
-                        if (w > 0 && h > 0)
+                        _width = w;
+                        _height = h;
+                        LayoutChildren();
+                        PropagateBackgroundRef();
+                        InvalidateRect(_hwnd, IntPtr.Zero, false);
+                    }
+                    break;
+
+                case WM_PAINT:
+                    {
+                        var ps = new PAINTSTRUCT();
+                        var hdc = BeginPaint(_hwnd, out ps);
+                        try
                         {
-                            _width = w;
-                            _height = h;
-                            LayoutKnobs();
+                            using var g = Graphics.FromHdc(hdc);
+                            g.SmoothingMode = SmoothingMode.HighQuality;
+                            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+
+                            if (_bg1024x512 != null)
+                                g.DrawImage(_bg1024x512, new Rectangle(0, 0, _width, _height));
+                            else
+                                g.Clear(Color.FromArgb(22, 40, 68));
                         }
-                        break;
+                        finally { EndPaint(_hwnd, ref ps); }
+                        return (IntPtr)0;
                     }
             }
 
             return CallWindowProc(_origWndProc, hWnd, msg, wParam, lParam);
         }
 
-        // ---------------- P/Invoke ----------------
-
         private delegate IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern IntPtr CreateWindowEx(
-            int dwExStyle, string lpClassName, string? lpWindowName, int dwStyle,
-            int X, int Y, int nWidth, int nHeight,
-            IntPtr hWndParent, IntPtr hMenu, IntPtr hInstance, IntPtr lpParam);
+        private static extern IntPtr CreateWindowEx(int dwExStyle, string lpClassName, string? lpWindowName, int dwStyle,
+            int X, int Y, int nWidth, int nHeight, IntPtr hWndParent, IntPtr hMenu, IntPtr hInstance, IntPtr lpParam);
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
@@ -263,5 +220,24 @@ namespace NPlug.SimpleGain.UI.Win32
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr CallWindowProc(IntPtr lpPrevWndFunc, IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")] private static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
+        [DllImport("user32.dll")] private static extern IntPtr BeginPaint(IntPtr hWnd, out PAINTSTRUCT lpPaint);
+        [DllImport("user32.dll")] private static extern bool EndPaint(IntPtr hWnd, ref PAINTSTRUCT lpPaint);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct PAINTSTRUCT
+        {
+            public IntPtr hdc;
+            public bool fErase;
+            public RECT rcPaint;
+            public bool fRestore;
+            public bool fIncUpdate;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
+            public byte[] rgbReserved;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT { public int left, top, right, bottom; }
     }
 }

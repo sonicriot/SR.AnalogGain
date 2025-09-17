@@ -117,6 +117,13 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
         double gainDb = minDb + normalized * (maxDb - minDb);
         float gain = (float)Math.Pow(10.0, gainDb / 20.0);
 
+        // Output mapping: normalized [0..1] → dB → linear
+        const double outMinDb = -24.0;
+        const double outMaxDb = +12.0;
+        double outNorm = Model.Output.NormalizedValue;
+        double outDb = outMinDb + outNorm * (outMaxDb - outMinDb);
+        float outGain = (float)Math.Pow(10.0, outDb / 20.0);
+
         // RMS → drive curve
         const float kneeLo = 0.200f;  // ~ -14 dBFS
         const float kneeHi = 0.750f;  // ~  -2.5 dBFS
@@ -192,6 +199,7 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
                 y = postHS2.Process(y);
                 y = lp18k.Process(y);
 
+                y *= outGain;    // final output trim
                 output[i] = y;
                 _gainZ[ch] = g;
             }
