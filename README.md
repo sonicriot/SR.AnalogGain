@@ -22,6 +22,12 @@ A simple **gain plugin** built with [NPlug](https://github.com/xoofx/NPlug) demo
 
 ---
 
+## 🎨 Screenshot
+
+![AnalogGain UI](docs/screenshot.png)
+
+---
+
 ## 📂 Project Structure
 
 - **`AnalogGainController.cs`**  
