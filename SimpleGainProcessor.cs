@@ -126,8 +126,6 @@ public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
         double outNorm = Model.Output.NormalizedValue;
         double outDb = outMinDb + outNorm * (outMaxDb - outMinDb);
 
-        const double minOutDb = -24.0;
-        const double maxOutDb = +12.0;
         float outTarget = (float)Math.Pow(10.0, outDb / 20.0);
 
         // RMS → drive curve
