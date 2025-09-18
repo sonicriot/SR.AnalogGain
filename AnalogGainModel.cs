@@ -1,8 +1,8 @@
-﻿namespace NPlug.SimpleGain;
-
-public class SimpleGainModel : AudioProcessorModel
+﻿namespace SR.AnalogGain;
+using NPlug;
+public class AnalogGainModel : AudioProcessorModel
 {
-    public SimpleGainModel() : base("NPlug.SimpleGain")
+    public AnalogGainModel() : base("SR.AnalogGain")
     {
         AddByPassParameter();
 

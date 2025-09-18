@@ -2,17 +2,17 @@
 using System.Runtime.InteropServices;
 using NPlug;
 
-namespace NPlug.SimpleGain
+namespace SR.AnalogGain
 {
     /// <summary>
     /// Fixed-aspect editor that hosts a Win32 dual-knob container (GAIN + OUTPUT).
     /// DPI- and host-scale aware, with an extra user scale to globally shrink/enlarge the UI.
     /// </summary>
-    public sealed class SimpleGainEditor : IAudioPluginView
+    public sealed class AnalogGainEditor : IAudioPluginView
     {
         // ---- Dependencies ---------------------------------------------------
-        private readonly SimpleGainController _controller;
-        private readonly SimpleGainModel _model;
+        private readonly AnalogGainController _controller;
+        private readonly AnalogGainModel _model;
         private readonly UI.Win32.FixedDualKnobWindow _window;
 
         // ---- Host frame / scaling ------------------------------------------
@@ -31,7 +31,7 @@ namespace NPlug.SimpleGain
         private const float MaxScale = 4.0f;
 
         // ---- Ctor -----------------------------------------------------------
-        public SimpleGainEditor(SimpleGainController controller, SimpleGainModel model)
+        public AnalogGainEditor(AnalogGainController controller, AnalogGainModel model)
         {
             _controller = controller;
             _model = model;

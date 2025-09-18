@@ -1,4 +1,4 @@
-# NPlug.SimpleGain 🎚️
+# SR.AnalogGain 🎚️
 
 A simple **gain plugin** built with [NPlug](https://github.com/atsushieno/nplug) demonstrating:
 
@@ -24,7 +24,7 @@ A simple **gain plugin** built with [NPlug](https://github.com/atsushieno/nplug)
 
 ## 📂 Project Structure
 
-- **`SimpleGainController.cs`**  
+- **`AnalogGainController.cs`**  
   Defines the plugin’s controller, responsible for parameter handling and creating the editor view.
 
 - **`FixedDualKnobWindow.cs`**  
@@ -54,8 +54,8 @@ A simple **gain plugin** built with [NPlug](https://github.com/atsushieno/nplug)
 ### Build
 
 ```sh
-git clone https://github.com/yourusername/NPlug.SimpleGain.git
-cd NPlug.SimpleGain
+git clone https://github.com/sonicriot/SR.AnalogGain.git
+cd SR.AnalogGain
 dotnet publish -c Release -r win-x64 -p:PublishAot=true
 ```
 
@@ -74,7 +74,7 @@ Restart your DAW and scan for new plugins.
 
 ## 🎛️ Usage
 
-1. Insert **SimpleGain** on an audio track.
+1. Insert **AnalogGain** on an audio track.
 2. Adjust the **GAIN** knob to boost or attenuate input signal.
 3. Fine-tune with the **OUTPUT** knob to control final level.
 4. Observe dB readouts and knob pointer for precision control.

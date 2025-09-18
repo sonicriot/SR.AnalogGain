@@ -2,15 +2,15 @@
 using System.Runtime.CompilerServices;
 using NPlug;
 
-namespace NPlug.SimpleGain;
+namespace SR.AnalogGain;
 
-public class SimpleGainProcessor : AudioProcessor<SimpleGainModel>
+public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
 {
-    public static readonly Guid ClassId = new("6cc2ddeb-b6ea-4778-af48-45b2a8df59e2");
+    public static readonly Guid ClassId = new("0da5855d-c9f8-49a3-b422-30a06112b040");
 
-    public SimpleGainProcessor() : base(AudioSampleSizeSupport.Float32) { }
+    public AnalogGainProcessor() : base(AudioSampleSizeSupport.Float32) { }
 
-    public override Guid ControllerClassId => SimpleGainController.ClassId;
+    public override Guid ControllerClassId => AnalogGainController.ClassId;
 
     // --- Per-channel state ---
     private RmsDetector[] _rms = Array.Empty<RmsDetector>();

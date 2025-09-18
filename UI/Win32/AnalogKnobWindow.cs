@@ -3,7 +3,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 
-namespace NPlug.SimpleGain.UI.Win32
+namespace SR.AnalogGain.UI.Win32
 {
     internal sealed class AnalogKnobWindow
     {
