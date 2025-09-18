@@ -1,6 +1,6 @@
 # SR.AnalogGain 🎚️
 
-A simple **gain plugin** built with [NPlug](https://github.com/atsushieno/nplug) demonstrating:
+A simple **gain plugin** built with [NPlug](https://github.com/xoofx/NPlug) demonstrating:
 
 - Basic **audio processing** (linear gain with dB mapping).
 - A **custom Win32 UI** featuring analog-style knobs.
