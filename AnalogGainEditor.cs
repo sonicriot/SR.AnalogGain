@@ -79,13 +79,7 @@ namespace SR.AnalogGain
             AdjustGainDb(Math.Sign(distance) * 0.5);
         }
 
-        public void OnKeyDown(ushort key, short keyCode, short modifiers)
-        {
-            // Left/Right to nudge GAIN +/- 0.5 dB
-            const int VK_LEFT = 0x25, VK_RIGHT = 0x27;
-            if (keyCode == VK_LEFT) AdjustGainDb(-0.5);
-            if (keyCode == VK_RIGHT) AdjustGainDb(+0.5);
-        }
+        public void OnKeyDown(ushort key, short keyCode, short modifiers) { /* no-op */ }
 
         public void OnKeyUp(ushort key, short keyCode, short modifiers) { /* no-op */ }
 

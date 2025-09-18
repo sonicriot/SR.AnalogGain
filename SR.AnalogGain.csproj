@@ -8,7 +8,6 @@
 
   <ItemGroup>
     <None Remove="Assets\Bg1024x512.png" />
-    <None Remove="Assets\KnobBg512.png" />
     <None Remove="Assets\KnobFace512.png" />
     <None Remove="Assets\KnobTop512.png" />
     <None Remove="Assets\KnobTop512_gray.png" />
@@ -20,20 +19,15 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Assets\Bg1024x512.png" />
-    <EmbeddedResource Include="Assets\KnobBg512.png">
-      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
-    </EmbeddedResource>
     <EmbeddedResource Include="Assets\KnobFace512.png" />
     <EmbeddedResource Include="Assets\KnobTop512.png">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </EmbeddedResource>
     <EmbeddedResource Include="Assets\KnobTop512_gray.png" />
-    <EmbeddedResource Include="Assets\KnobTop512_red.png" />
     <EmbeddedResource Include="Assets\knob_pointer_sprite_300x300_x73_clockwise263.png">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </EmbeddedResource>
     <EmbeddedResource Include="Assets\knob_pointer_sprite_300x300_x73_clockwise263_gray.png" />
-    <EmbeddedResource Include="Assets\knob_pointer_sprite_300x300_x73_clockwise263_red.png" />
   </ItemGroup>
 
   <ItemGroup>
