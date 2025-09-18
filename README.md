@@ -33,9 +33,6 @@ A simple **gain plugin** built with [NPlug](https://github.com/atsushieno/nplug)
 - **`AnalogKnobWindow.cs`**  
   Low-level knob implementation: rendering ticks, labels, pointer sprites, and handling mouse interaction.
 
-- **`FixedGainWindow.cs`** *(legacy / alternative)*  
-  Single knob host container (currently commented out).
-
 - **`Embeded.cs`**  
   Utility to load embedded bitmap resources (e.g., `KnobFace512.png`, `Bg1024x512.png`).
 
@@ -92,16 +89,6 @@ Restart your DAW and scan for new plugins.
 
 ---
 
-## 🛠️ Roadmap
-
-- [ ] Parameter smoothing (reduce zipper noise).  
-- [ ] Cross-platform UI (Avalonia / SkiaSharp).  
-- [ ] Optional DC filter and anti-denormal safeguards.  
-- [ ] Preset support.  
-- [ ] AAX/AU build exploration.
-
----
-
 ## 📜 License
 
 MIT License © 2025  
@@ -111,6 +98,6 @@ Feel free to use, modify, and extend.
 
 ## 🙌 Acknowledgments
 
-- [NPlug](https://github.com/atsushieno/nplug) for the managed VST3 binding.  
+- [NPlug](https://github.com/xoofx/NPlug) for the managed VST3 binding.  
 - Steinberg VST3 SDK for the plugin architecture.  
 - Inspiration from analog gear knob aesthetics.
