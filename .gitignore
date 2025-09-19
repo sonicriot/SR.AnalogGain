@@ -361,3 +361,8 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Always keep our UI Win32 sources
+!UI/
+!UI/Win32/
+!UI/Win32/**
