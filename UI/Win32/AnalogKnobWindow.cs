@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
@@ -335,16 +336,13 @@ namespace SR.AnalogGain.UI.Win32
             using var brushTxt = new SolidBrush(Color.FromArgb(235, 235, 235));
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-            double range = _maxDb - _minDb;
-            double step = ChooseNiceStep(range);
+            // Use custom tick positions for gain knob (-60 to +12), standard for others
+            var tickPositions = GetTickPositions();
 
-            // extremos + intermedios
-            DrawOne(_minDb);
-            double first = Math.Ceiling(_minDb / step) * step;
-            if (Math.Abs(first - _minDb) < 1e-6) first = _minDb;
-            for (double v = first; v < _maxDb - 1e-6; v += step)
-                DrawOne(v);
-            DrawOne(_maxDb);
+            foreach (double db in tickPositions)
+            {
+                DrawOne(db);
+            }
 
             void DrawOne(double db)
             {
@@ -410,6 +408,39 @@ namespace SR.AnalogGain.UI.Win32
         }
 
         // ---------- Utilidades ----------
+        private double[] GetTickPositions()
+        {
+            // Custom tick positions for gain knob (-60 to +12 dB)
+            if (Math.Abs(_minDb - (-60.0)) < 1e-6 && Math.Abs(_maxDb - 12.0) < 1e-6)
+            {
+                return new double[] { -60, -50, -40, -30, -20, -10, 0, 6, 12 };
+            }
+            
+            // For other ranges (like output knob), use the original algorithm
+            double range = _maxDb - _minDb;
+            double step = ChooseNiceStep(range);
+            
+            var positions = new List<double>();
+            
+            // Add min
+            positions.Add(_minDb);
+            
+            // Add intermediate steps
+            double first = Math.Ceiling(_minDb / step) * step;
+            if (Math.Abs(first - _minDb) < 1e-6) first = _minDb;
+            for (double v = first; v < _maxDb - 1e-6; v += step)
+            {
+                if (Math.Abs(v - _minDb) > 1e-6) // Don't duplicate min
+                    positions.Add(v);
+            }
+            
+            // Add max
+            if (Math.Abs(_maxDb - _minDb) > 1e-6) // Don't duplicate if min == max
+                positions.Add(_maxDb);
+            
+            return positions.ToArray();
+        }
+
         private static double ChooseNiceStep(double range)
         {
             if (range >= 48) return 10;
