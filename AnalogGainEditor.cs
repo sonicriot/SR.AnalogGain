@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.InteropServices;
 using NPlug;
 
@@ -69,9 +69,19 @@ namespace SR.AnalogGain
 
             // Ask host to resize and layout the child window
             ApplyScaleAndResize();
+            
+            // Refresh UI to ensure knobs reflect current parameter values
+            // (important when editor is reopened after host preset changes)
+            _window.RefreshUI();
         }
 
-        public void Removed() => _window.Destroy();
+        public void Removed() 
+        {
+            _window.Destroy();
+            // Notify controller that editor is closed
+            if (_controller is AnalogGainController controller)
+                controller.OnEditorClosed();
+        }
 
         public void OnWheel(float distance)
         {
@@ -133,6 +143,35 @@ namespace SR.AnalogGain
             var (w, _) = GetScaledSize();
             parameterId = (xPos < w / 2) ? _model.Gain.Id : _model.Output.Id;
             return true;
+        }
+
+        // ---- Public Methods -------------------------------------------------
+        
+        /// <summary>
+        /// Refreshes the UI to reflect current parameter values.
+        /// Called when parameters are changed externally (e.g., host preset loading, automation).
+        /// </summary>
+        public void RefreshUI()
+        {
+            _window.RefreshUI();
+        }
+
+        /// <summary>
+        /// Forces an immediate UI update by checking current parameter values.
+        /// This is a more aggressive refresh that ensures the UI matches the model.
+        /// </summary>
+        public void ForceUIUpdate()
+        {
+            // Force a complete UI refresh multiple times to ensure it takes effect
+            _window.RefreshUI();
+            _window.RefreshUI(); // Call twice to ensure it works
+            
+            // Also trigger a window repaint
+            if (_window != null)
+            {
+                // This will force the knobs to re-read their values and redraw
+                ApplyScaleAndResize();
+            }
         }
 
         // ---- Helpers --------------------------------------------------------
