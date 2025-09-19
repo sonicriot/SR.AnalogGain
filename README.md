@@ -28,32 +28,6 @@ A simple **gain plugin** built with [NPlug](https://github.com/xoofx/NPlug) demo
 
 ---
 
-## 📂 Project Structure
-
-```bash
-src/
-├── SR.AnalogGain.sln              # Solution file
-└── SR.AnalogGain/                 # Main project folder
-    ├── SR.AnalogGain.csproj       # Project file
-    ├── AnalogGainController.cs    # Plugin controller (parameter handling, editor creation)
-    ├── AnalogGainEditor.cs        # Main editor interface
-    ├── AnalogGainModel.cs         # Parameter model
-    ├── AnalogGainPlugin.cs        # Plugin factory and registration
-    ├── AnalogGainProcessor.cs     # Audio processing engine
-    ├── Assets/                    # Embedded bitmap resources
-    │   ├── Bg1024x512.png         # Background image
-    │   ├── KnobFace512.png        # Knob face texture
-    │   ├── KnobTop512.png         # Knob top (gain)
-    │   ├── KnobTop512_gray.png    # Knob top (output)
-    │   └── knob_pointer_sprite_*.png # Animated pointer sprites
-    └── UI/Win32/                  # Windows-specific UI implementation
-        ├── FixedDualKnobWindow.cs # Main editor window with dual knobs
-        ├── AnalogKnobWindow.cs    # Individual knob implementation
-        └── Embeded.cs             # Bitmap resource loader utility
-```
-
----
-
 ## 🚀 Getting Started
 
 ### Prerequisites
