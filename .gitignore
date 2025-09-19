@@ -363,6 +363,6 @@ MigrationBackup/
 FodyWeavers.xsd
 
 # Always keep our UI Win32 sources
-!UI/
-!UI/Win32/
-!UI/Win32/**
+!src/SR.AnalogGain/UI/
+!src/SR.AnalogGain/UI/Win32/
+!src/SR.AnalogGain/UI/Win32/**
