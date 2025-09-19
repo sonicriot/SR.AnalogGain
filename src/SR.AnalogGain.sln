@@ -4,6 +4,8 @@ VisualStudioVersion = 17.14.36401.2
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SR.AnalogGain", "SR.AnalogGain\SR.AnalogGain.csproj", "{4AFF57BC-AB79-C488-7B19-E16CF33C62A3}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SR.AnalogGain.Tests", "SR.AnalogGain.Tests\SR.AnalogGain.Tests.csproj", "{B8F1E2C3-D4A5-4B6C-8E9F-1A2B3C4D5E6F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -14,6 +16,10 @@ Global
 		{4AFF57BC-AB79-C488-7B19-E16CF33C62A3}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{4AFF57BC-AB79-C488-7B19-E16CF33C62A3}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{4AFF57BC-AB79-C488-7B19-E16CF33C62A3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B8F1E2C3-D4A5-4B6C-8E9F-1A2B3C4D5E6F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B8F1E2C3-D4A5-4B6C-8E9F-1A2B3C4D5E6F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B8F1E2C3-D4A5-4B6C-8E9F-1A2B3C4D5E6F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B8F1E2C3-D4A5-4B6C-8E9F-1A2B3C4D5E6F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
