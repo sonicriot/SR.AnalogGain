@@ -10,14 +10,14 @@ public class AnalogGainModel : AudioProcessorModel
         const double maxDb = 12.0;
         double norm0dB = (0.0 - minDb) / (maxDb - minDb);
 
-        Gain = AddParameter(new AudioParameter("Gain [-60 to +12 dB]", units: "dB", defaultNormalizedValue: norm0dB));
+        Gain = AddParameter(new AudioParameter("Gain [-60 to +12 dB]", id: 10, units: "dB", defaultNormalizedValue: norm0dB));
         // Explicitly set the normalized value to ensure 0 dB initialization
         Gain.NormalizedValue = norm0dB;
 
         // Output: -24..+12 dB (default 0 dB)
         const double outMin = -24.0, outMax = 12.0;
         double norm0Out = (0.0 - outMin) / (outMax - outMin);
-        Output = AddParameter(new AudioParameter("Output [-24 to +12 dB]", units: "dB", defaultNormalizedValue: norm0Out));
+        Output = AddParameter(new AudioParameter("Output [-24 to +12 dB]", id: 20, units: "dB", defaultNormalizedValue: norm0Out));
         // Explicitly set the normalized value to ensure 0 dB initialization
         Output.NormalizedValue = norm0Out;
 
