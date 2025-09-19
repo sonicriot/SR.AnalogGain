@@ -30,22 +30,27 @@ A simple **gain plugin** built with [NPlug](https://github.com/xoofx/NPlug) demo
 
 ## 📂 Project Structure
 
-- **`AnalogGainController.cs`**  
-  Defines the plugin’s controller, responsible for parameter handling and creating the editor view.
-
-- **`FixedDualKnobWindow.cs`**  
-  Main editor window with two side-by-side analog knobs.
-
-- **`AnalogKnobWindow.cs`**  
-  Low-level knob implementation: rendering ticks, labels, pointer sprites, and handling mouse interaction.
-
-- **`Embeded.cs`**  
-  Utility to load embedded bitmap resources (e.g., `KnobFace512.png`, `Bg1024x512.png`).
-
-- **Embedded Resources**  
-  - `KnobFace512.png`, `KnobTop512.png`, `KnobTop512_gray.png`  
-  - `knob_pointer_sprite_300x300_x73_clockwise263.png` (+ red/gray variants)  
-  - `Bg1024x512.png` (background)  
+```bash
+src/
+├── SR.AnalogGain.sln              # Solution file
+└── SR.AnalogGain/                 # Main project folder
+    ├── SR.AnalogGain.csproj       # Project file
+    ├── AnalogGainController.cs    # Plugin controller (parameter handling, editor creation)
+    ├── AnalogGainEditor.cs        # Main editor interface
+    ├── AnalogGainModel.cs         # Parameter model
+    ├── AnalogGainPlugin.cs        # Plugin factory and registration
+    ├── AnalogGainProcessor.cs     # Audio processing engine
+    ├── Assets/                    # Embedded bitmap resources
+    │   ├── Bg1024x512.png         # Background image
+    │   ├── KnobFace512.png        # Knob face texture
+    │   ├── KnobTop512.png         # Knob top (gain)
+    │   ├── KnobTop512_gray.png    # Knob top (output)
+    │   └── knob_pointer_sprite_*.png # Animated pointer sprites
+    └── UI/Win32/                  # Windows-specific UI implementation
+        ├── FixedDualKnobWindow.cs # Main editor window with dual knobs
+        ├── AnalogKnobWindow.cs    # Individual knob implementation
+        └── Embeded.cs             # Bitmap resource loader utility
+```
 
 ---
 
@@ -61,11 +66,11 @@ A simple **gain plugin** built with [NPlug](https://github.com/xoofx/NPlug) demo
 
 ```sh
 git clone https://github.com/sonicriot/SR.AnalogGain.git
-cd SR.AnalogGain
+cd SR.AnalogGain/src
 dotnet publish -c Release -r win-x64 -p:PublishAot=true
 ```
 
-This will produce a **self-contained, ahead-of-time compiled** `.vst3` plugin in the `bin/Release/net9.0/win-x64/publish/` folder.
+This will produce a **self-contained, ahead-of-time compiled** `.vst3` plugin in the `SR.AnalogGain/bin/Release/net9.0/win-x64/publish/` folder.
 
 ### Install
 
