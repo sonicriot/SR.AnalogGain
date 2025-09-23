@@ -178,15 +178,15 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             const float kLoZShelfDb = -1.5f;
             float lozPadTarget = lozOn ? (float)Math.Pow(10.0, kLoZPadDb / 20.0) : 1.0f;
             float lozBlendTarget = lozOn ? (1.0f - (float)Math.Pow(10.0, kLoZShelfDb / 20.0)) : 0.0f;
-            float lozBlend = _lozBlendZ[ch];
-            float lozPad = _lozPadZ[ch];
-            float lozBlendInc = (lozBlendTarget - lozBlend) / Math.Max(1, data.SampleCount);
-            float lozPadInc = (lozPadTarget - lozPad) / Math.Max(1, data.SampleCount);
             if (_lozBlendZ[ch] == 0f && _lozPadZ[ch] == 0f && lozOn)
             {
                 _lozBlendZ[ch] = lozBlendTarget;
                 _lozPadZ[ch] = lozPadTarget;
             }
+            float lozBlend = _lozBlendZ[ch];
+            float lozPad = _lozPadZ[ch];
+            float lozBlendInc = (lozBlendTarget - lozBlend) / Math.Max(1, data.SampleCount);
+            float lozPadInc = (lozPadTarget - lozPad) / Math.Max(1, data.SampleCount);
 
             for (int i = 0; i < data.SampleCount; i++)
             {
