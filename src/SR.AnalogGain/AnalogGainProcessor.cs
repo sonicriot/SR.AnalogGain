@@ -18,7 +18,7 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
     private Biquad[] _postLF = Array.Empty<Biquad>();
     private Biquad[] _postHS = Array.Empty<Biquad>();
     private Biquad[] _postHS2 = Array.Empty<Biquad>();
-    private OnePoleLP[] _lp18k = Array.Empty<OnePoleLP>();   // very gentle HF tamer
+    private OnePoleLP[] _lpHfTamer = Array.Empty<OnePoleLP>();   // very gentle HF tamer
     private DcBlock[] _dc = Array.Empty<DcBlock>();
     private OnePoleLP[] _lozLP = Array.Empty<OnePoleLP>();  // LO-Z lowpass (6 kHz)
     private float[] _lozBlendZ = Array.Empty<float>();
@@ -66,7 +66,7 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             _postLF.Length != channels ||
             _postHS.Length != channels ||
             _postHS2.Length != channels ||
-            _lp18k.Length != channels ||
+            _lpHfTamer.Length != channels ||
             _dc.Length != channels ||
             _lozLP.Length != channels ||
             _lozBlendZ.Length != channels ||
@@ -82,7 +82,7 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             _postLF = new Biquad[channels];
             _postHS = new Biquad[channels];
             _postHS2 = new Biquad[channels];
-            _lp18k = new OnePoleLP[channels];
+            _lpHfTamer = new OnePoleLP[channels];
             _dc = new DcBlock[channels];
             _lozLP = new OnePoleLP[channels];
             _lozBlendZ = new float[channels];
@@ -101,7 +101,7 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
                 _postLF[ch].SetLowShelf(_fs, PreLF_Freq, PostLF_Gain);
                 _postHS[ch].SetHighShelf(_fs, PostHS_Freq, PostHS_Gain, 0.7);
                 _postHS2[ch].SetHighShelf(_fs, 4000.0, 0.6, 0.5);
-                _lp18k[ch].Setup(_fs, cutoffHz: 22000.0);
+                _lpHfTamer[ch].Setup(_fs, cutoffHz: 22000.0);
                 _lozLP[ch].Setup(_fs, cutoffHz: 6000.0);
                 _dc[ch].Setup(_fs, 8.0);
             }
@@ -169,7 +169,7 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             ref var postLF = ref _postLF[ch];
             ref var postHS = ref _postHS[ch];
             ref var postHS2 = ref _postHS2[ch];
-            ref var lp18k = ref _lp18k[ch];
+            ref var lpHfTamer = ref _lpHfTamer[ch];
             ref var dc = ref _dc[ch];
 
             // initialize smoothed gain on first buffer
@@ -256,7 +256,7 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
                 y = postLF.Process(y);
                 y = postHS.Process(y);
                 y = postHS2.Process(y);
-                y = lp18k.Process(y);
+                y = lpHfTamer.Process(y);
 
                 outNow += outInc;    // final output trim
                 output[i] = y * outNow;
