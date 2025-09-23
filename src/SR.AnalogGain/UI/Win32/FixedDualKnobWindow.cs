@@ -29,6 +29,7 @@ namespace SR.AnalogGain.UI.Win32
         private readonly AnalogKnobWindow _rightKnob;
         private SwitchWindow _lozSwitch;
         private SwitchWindow _padSwitch;
+        private SwitchWindow _phaseSwitch;
 
         private Bitmap? _bg1024x512;
 
@@ -56,7 +57,9 @@ namespace SR.AnalogGain.UI.Win32
             Func<bool> getLoZ, 
             Action beginLoZ, Action<bool> performLoZ, Action endLoZ,
             Func<bool> getPad, 
-            Action beginPad, Action<bool> performPad, Action endPad
+            Action beginPad, Action<bool> performPad, Action endPad,
+            Func<bool> getPhase,
+            Action beginPhase, Action<bool> performPhase, Action endPhase
         )
         {
             _wndProcDelegate = CustomWndProc;
@@ -92,6 +95,15 @@ namespace SR.AnalogGain.UI.Win32
                 begin: beginPad, 
                 perform: performPad, 
                 end: endPad);
+
+            _phaseSwitch = new SwitchWindow(
+                resOff: "Switch-off.png",
+                resOn: "Switch-on.png",
+                label: "PHASE",
+                get: getPhase,
+                begin: beginPhase,
+                perform: performPhase,
+                end: endPhase);
         }
 
         public bool AttachToParent(IntPtr parentHwnd)
@@ -115,6 +127,7 @@ namespace SR.AnalogGain.UI.Win32
             _rightKnob.Create(_hwnd, _width / 2, 0, _width / 2, _height);
             _lozSwitch.Create(_hwnd, 0, 0, 10, 10);
             _padSwitch.Create(_hwnd, 0, 0, 10, 10);
+            _phaseSwitch.Create(_hwnd, 0, 0, 10, 10);
 
             // dar a los knobs referencia del fondo y tamaño del contenedor
             PropagateBackgroundRef();
@@ -129,6 +142,7 @@ namespace SR.AnalogGain.UI.Win32
             _rightKnob.Destroy();
             _lozSwitch.Destroy();
             _padSwitch.Destroy();
+            _phaseSwitch.Destroy();
 
             _bg1024x512?.Dispose(); _bg1024x512 = null;
 
@@ -166,6 +180,7 @@ namespace SR.AnalogGain.UI.Win32
             _rightKnob.Refresh();
             _lozSwitch?.Refresh();
             _padSwitch?.Refresh();
+            _phaseSwitch?.Refresh();
             if (_hwnd != IntPtr.Zero) InvalidateRect(_hwnd, IntPtr.Zero, false);
         }
 
@@ -218,12 +233,13 @@ namespace SR.AnalogGain.UI.Win32
             // Slot positions (for readability)
             int slot0Y = groupTopY + 0 * slotPitch; // LO-Z
             int slot1Y = groupTopY + 1 * slotPitch; // PAD
-                                                    // int slot2Y = groupTopY + 2 * slotPitch; // future switch #3
+            int slot2Y = groupTopY + 2 * slotPitch; // PHASE
                                                     // int slot3Y = groupTopY + 3 * slotPitch; // future switch #4
 
             // Place current switches in the TOP HALF
             _lozSwitch?.SetBounds(swX, slot0Y, swW, swH);
             _padSwitch?.SetBounds(swX, slot1Y, swW, swH);
+            _phaseSwitch?.SetBounds(swX, slot2Y, swW, swH);
         }
 
 
@@ -235,6 +251,7 @@ namespace SR.AnalogGain.UI.Win32
             _rightKnob.SetContainerBackgroundReference(_bg1024x512, _width, _height);
             _lozSwitch?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
             _padSwitch?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
+            _phaseSwitch?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
         }
 
         private IntPtr CustomWndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)

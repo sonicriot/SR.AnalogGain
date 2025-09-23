@@ -27,6 +27,7 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
     private float[] _adaaPrev = Array.Empty<float>();        // ADAA state
     private float[] _outputZ = Array.Empty<float>();
     private float[] _padZ = Array.Empty<float>();
+    private float[] _phaseZ = Array.Empty<float>();   // smoothed polarity (+1 ↔ -1)
 
     private double _fs = 48000.0;
     private int _configuredChannels = -1;
@@ -75,7 +76,8 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             _gainZ.Length != channels ||
             _adaaPrev.Length != channels ||
             _outputZ.Length != channels ||
-            _padZ.Length != channels;
+            _padZ.Length != channels ||
+            _phaseZ.Length != channels;
 
         if (sizeMismatch)
         {
@@ -93,6 +95,7 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             _adaaPrev = new float[channels];
             _outputZ = new float[channels];
             _padZ = new float[channels];
+            _phaseZ = new float[channels];
         }
 
         if (sizeMismatch || _configuredFs != _fs || _configuredChannels != channels)
@@ -164,6 +167,10 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
         bool padOn = Model.Pad.Value;
         float padTargetBlock = padOn ? 0.1f : 1.0f;
 
+        bool phaseOn = Model.Phase.Value;
+        // target +1 when OFF, -1 when ON
+        float phaseTargetBlock = phaseOn ? -1.0f : 1.0f;
+
         int channels = inputBus.ChannelCount;
         for (int ch = 0; ch < channels; ch++)
         {
@@ -182,6 +189,11 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             if (_padZ[ch] == 0f) _padZ[ch] = padTargetBlock;
             float padNow = _padZ[ch];
             float padInc = (padTargetBlock - padNow) / Math.Max(1, data.SampleCount);
+
+            // Seed and ramp PHASE
+            if (_phaseZ[ch] == 0f) _phaseZ[ch] = phaseTargetBlock; // avoid mid-block fade on first use
+            float phaseNow = _phaseZ[ch];
+            float phaseInc = (phaseTargetBlock - phaseNow) / Math.Max(1, data.SampleCount);
 
             // initialize smoothed gain on first buffer
             if (_gainZ[ch] == 0f) _gainZ[ch] = gain;
@@ -224,6 +236,10 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
                 lozPad = MathF.Min(1f, MathF.Max(0f, lozPad));
 
                 float x = input[i] * padNow * g;
+
+                phaseNow += phaseInc;
+                // polarity flip as a short ramp to avoid clicks
+                x *= phaseNow;
 
                 // LO-Z stage: tiny pad + gentle HF tilt (blend with 6 kHz LP)
                 if (lozOn || lozBlend > 1e-6f)
@@ -281,6 +297,7 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
 
             _gainZ[ch] = g;
             _padZ[ch] = padNow;
+            _phaseZ[ch] = phaseNow;
             _lozBlendZ[ch] = lozBlend;
             _lozPadZ[ch] = lozPad;
             _outputZ[ch] = outNow;

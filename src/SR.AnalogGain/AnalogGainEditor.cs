@@ -62,7 +62,13 @@ namespace SR.AnalogGain
                 getPad: () => _model.Pad.Value,
                 beginPad: () => _controller.BeginEditParameter(_model.Pad),
                 performPad: v => _model.Pad.Value = v,
-                endPad: () => _controller.EndEditParameter()
+                endPad: () => _controller.EndEditParameter(),
+
+                // PHASE switch (new)
+                getPhase: () => _model.Phase.Value,
+                beginPhase: () => _controller.BeginEditParameter(_model.Phase),
+                performPhase: v => _model.Phase.Value = v,
+                endPhase: () => _controller.EndEditParameter()
             );
         }
 
