@@ -12,6 +12,11 @@ A simple **gain plugin** built with [NPlug](https://github.com/xoofx/NPlug) demo
 
 - **Gain Control**: Adjustable from deep attenuation to boost.
 - **Output Level**: Independent knob to control final volume.
+- **Switches** (analog-style toggles):
+  - **LO-Z**: Low-impedance input coloration (pad + HF tilt).
+  - **PAD**: Fixed –20 dB attenuation before the gain stage.
+  - **PHASE**: Polarity inversion with click-free ramping.
+  - **HPF**: High-pass filter around 80 Hz, 18 dB/oct slope.
 - **Custom UI**:
   - Dual analog knobs (`GAIN` and `OUTPUT`).
   - Tick marks, dB labels, and animated pointer sprites.
@@ -62,7 +67,8 @@ Restart your DAW and scan for new plugins.
 1. Insert **AnalogGain** on an audio track.
 2. Adjust the **GAIN** knob to boost or attenuate input signal.
 3. Fine-tune with the **OUTPUT** knob to control final level.
-4. Observe dB readouts and knob pointer for precision control.
+4. Use the **switches** (LO-Z, PAD, PHASE, HPF) to shape the input response like on a classic preamp.
+5. Observe dB readouts and knob pointer for precision control.
 
 ---
 
