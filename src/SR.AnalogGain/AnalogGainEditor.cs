@@ -36,7 +36,7 @@ namespace SR.AnalogGain
             _controller = controller;
             _model = model;
 
-            // Match FixedDualKnobWindow signature (left = GAIN, right = OUTPUT)
+            // Match FixedDualKnobWindow signature (left = GAIN, right = OUTPUT, LO-Z)
             _window = new UI.Win32.FixedDualKnobWindow(
                 // Left knob (GAIN)
                 getNormalizedLeft: () => (float)_model.Gain.NormalizedValue,
@@ -50,7 +50,31 @@ namespace SR.AnalogGain
                 beginRight: () => _controller.BeginEditParameter(_model.Output),
                 performRight: nv => _model.Output.NormalizedValue = (float)Math.Clamp(nv, 0.0, 1.0),
                 endRight: () => _controller.EndEditParameter(),
-                minDbRight: -24.0, maxDbRight: +12.0
+                minDbRight: -24.0, maxDbRight: +12.0,
+
+                // LO-Z switch
+                getLoZ: () => _model.LoZ.Value,
+                beginLoZ: () => _controller.BeginEditParameter(_model.LoZ),
+                performLoZ: v => _model.LoZ.Value = v,
+                endLoZ: () => _controller.EndEditParameter(),
+
+                // PAD switch (new)
+                getPad: () => _model.Pad.Value,
+                beginPad: () => _controller.BeginEditParameter(_model.Pad),
+                performPad: v => _model.Pad.Value = v,
+                endPad: () => _controller.EndEditParameter(),
+
+                // PHASE switch (new)
+                getPhase: () => _model.Phase.Value,
+                beginPhase: () => _controller.BeginEditParameter(_model.Phase),
+                performPhase: v => _model.Phase.Value = v,
+                endPhase: () => _controller.EndEditParameter(),
+
+                // HPF switch (new)
+                getHpf: () => _model.Hpf.Value,
+                beginHpf: () => _controller.BeginEditParameter(_model.Hpf),
+                performHpf: v => _model.Hpf.Value = v,
+                endHpf: () => _controller.EndEditParameter()
             );
         }
 
@@ -173,6 +197,17 @@ namespace SR.AnalogGain
                 ApplyScaleAndResize();
             }
         }
+
+        public void RefreshParameter(AudioParameter parameter)
+        {
+            if (parameter == _model.Gain) { _window.RefreshGainKnob(); return; }
+            if (parameter == _model.Output) { _window.RefreshOutputKnob(); return; }
+            if (parameter == _model.LoZ) { _window.RefreshLoZ(); return; }
+            if (parameter == _model.Pad) { _window.RefreshPad(); return; }
+            if (parameter == _model.Phase) { _window.RefreshPhase(); return; }
+            if (parameter == _model.Hpf) { _window.RefreshHpf(); return; }
+        }
+
 
         // ---- Helpers --------------------------------------------------------
         private void AdjustGainDb(double deltaDb)

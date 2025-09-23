@@ -1,5 +1,7 @@
 namespace SR.AnalogGain;
 using NPlug;
+using System.Numerics;
+
 public class AnalogGainModel : AudioProcessorModel
 {
     public AnalogGainModel() : base("SR.AnalogGain")
@@ -21,8 +23,16 @@ public class AnalogGainModel : AudioProcessorModel
         // Explicitly set the normalized value to ensure 0 dB initialization
         Output.NormalizedValue = norm0Out;
 
+        LoZ = AddParameter(new AudioBoolParameter("Lo-Z", id: 30));
+        Pad = AddParameter(new AudioBoolParameter("PAD", id: 40));
+        Phase = AddParameter(new AudioBoolParameter("PHASE", id: 50));
+        Hpf = AddParameter(new AudioBoolParameter("HPF", id: 60));
     }
 
     public AudioParameter Gain { get; }
     public AudioParameter Output { get; }
+    public AudioBoolParameter LoZ { get; }
+    public AudioBoolParameter Pad { get; }
+    public AudioBoolParameter Phase { get; }
+    public AudioBoolParameter Hpf { get; }
 }
