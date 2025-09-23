@@ -68,7 +68,13 @@ namespace SR.AnalogGain
                 getPhase: () => _model.Phase.Value,
                 beginPhase: () => _controller.BeginEditParameter(_model.Phase),
                 performPhase: v => _model.Phase.Value = v,
-                endPhase: () => _controller.EndEditParameter()
+                endPhase: () => _controller.EndEditParameter(),
+
+                // HPF switch (new)
+                getHpf: () => _model.Hpf.Value,
+                beginHpf: () => _controller.BeginEditParameter(_model.Hpf),
+                performHpf: v => _model.Hpf.Value = v,
+                endHpf: () => _controller.EndEditParameter()
             );
         }
 

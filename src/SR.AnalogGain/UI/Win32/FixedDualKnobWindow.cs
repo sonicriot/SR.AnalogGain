@@ -30,6 +30,7 @@ namespace SR.AnalogGain.UI.Win32
         private SwitchWindow _lozSwitch;
         private SwitchWindow _padSwitch;
         private SwitchWindow _phaseSwitch;
+        private SwitchWindow _hpfSwitch;
 
         private Bitmap? _bg1024x512;
 
@@ -48,7 +49,7 @@ namespace SR.AnalogGain.UI.Win32
         private readonly WndProc _wndProcDelegate;
 
         public FixedDualKnobWindow(
-            Func<float> getNormalizedLeft,
+            Func<float> getNormalizedLeft, 
             Action beginLeft, Action<double> performLeft, Action endLeft,
             double minDbLeft, double maxDbLeft,
             Func<float> getNormalizedRight,
@@ -59,7 +60,9 @@ namespace SR.AnalogGain.UI.Win32
             Func<bool> getPad, 
             Action beginPad, Action<bool> performPad, Action endPad,
             Func<bool> getPhase,
-            Action beginPhase, Action<bool> performPhase, Action endPhase
+            Action beginPhase, Action<bool> performPhase, Action endPhase,
+            Func<bool> getHpf, 
+            Action beginHpf, Action<bool> performHpf, Action endHpf
         )
         {
             _wndProcDelegate = CustomWndProc;
@@ -104,6 +107,15 @@ namespace SR.AnalogGain.UI.Win32
                 begin: beginPhase,
                 perform: performPhase,
                 end: endPhase);
+
+            _hpfSwitch = new SwitchWindow(
+                resOff: "Switch-off.png",
+                resOn: "Switch-on.png",
+                label: "HPF",
+                get: getHpf,
+                begin: beginHpf,
+                perform: performHpf,
+                end: endHpf);
         }
 
         public bool AttachToParent(IntPtr parentHwnd)
@@ -128,6 +140,7 @@ namespace SR.AnalogGain.UI.Win32
             _lozSwitch.Create(_hwnd, 0, 0, 10, 10);
             _padSwitch.Create(_hwnd, 0, 0, 10, 10);
             _phaseSwitch.Create(_hwnd, 0, 0, 10, 10);
+            _hpfSwitch.Create(_hwnd, 0, 0, 10, 10);
 
             // dar a los knobs referencia del fondo y tamaño del contenedor
             PropagateBackgroundRef();
@@ -143,6 +156,7 @@ namespace SR.AnalogGain.UI.Win32
             _lozSwitch.Destroy();
             _padSwitch.Destroy();
             _phaseSwitch.Destroy();
+            _hpfSwitch.Destroy();
 
             _bg1024x512?.Dispose(); _bg1024x512 = null;
 
@@ -176,11 +190,12 @@ namespace SR.AnalogGain.UI.Win32
 
         public void RefreshUI()
         {
-            _leftKnob.Refresh();
-            _rightKnob.Refresh();
+            _leftKnob?.Refresh();
+            _rightKnob?.Refresh();
             _lozSwitch?.Refresh();
             _padSwitch?.Refresh();
             _phaseSwitch?.Refresh();
+            _hpfSwitch?.Refresh();
             if (_hwnd != IntPtr.Zero) InvalidateRect(_hwnd, IntPtr.Zero, false);
         }
 
@@ -234,12 +249,13 @@ namespace SR.AnalogGain.UI.Win32
             int slot0Y = groupTopY + 0 * slotPitch; // LO-Z
             int slot1Y = groupTopY + 1 * slotPitch; // PAD
             int slot2Y = groupTopY + 2 * slotPitch; // PHASE
-                                                    // int slot3Y = groupTopY + 3 * slotPitch; // future switch #4
+            int slot3Y = groupTopY + 3 * slotPitch; // HPF
 
             // Place current switches in the TOP HALF
             _lozSwitch?.SetBounds(swX, slot0Y, swW, swH);
             _padSwitch?.SetBounds(swX, slot1Y, swW, swH);
             _phaseSwitch?.SetBounds(swX, slot2Y, swW, swH);
+            _hpfSwitch?.SetBounds(swX, slot3Y, swW, swH);
         }
 
 
@@ -247,11 +263,12 @@ namespace SR.AnalogGain.UI.Win32
         private void PropagateBackgroundRef()
         {
             // cada knob necesita: ref al bitmap de fondo y tamaño actual del contenedor
-            _leftKnob.SetContainerBackgroundReference(_bg1024x512, _width, _height);
-            _rightKnob.SetContainerBackgroundReference(_bg1024x512, _width, _height);
+            _leftKnob?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
+            _rightKnob?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
             _lozSwitch?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
             _padSwitch?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
             _phaseSwitch?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
+            _hpfSwitch?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
         }
 
         private IntPtr CustomWndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)

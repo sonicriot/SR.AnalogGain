@@ -26,6 +26,7 @@ public class AnalogGainModel : AudioProcessorModel
         LoZ = AddParameter(new AudioBoolParameter("Lo-Z", id: 30));
         Pad = AddParameter(new AudioBoolParameter("PAD", id: 40));
         Phase = AddParameter(new AudioBoolParameter("PHASE", id: 50));
+        Hpf = AddParameter(new AudioBoolParameter("HPF", id: 60));
     }
 
     public AudioParameter Gain { get; }
@@ -33,4 +34,5 @@ public class AnalogGainModel : AudioProcessorModel
     public AudioBoolParameter LoZ { get; }
     public AudioBoolParameter Pad { get; }
     public AudioBoolParameter Phase { get; }
+    public AudioBoolParameter Hpf { get; }
 }

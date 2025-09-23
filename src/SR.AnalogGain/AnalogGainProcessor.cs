@@ -28,6 +28,9 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
     private float[] _outputZ = Array.Empty<float>();
     private float[] _padZ = Array.Empty<float>();
     private float[] _phaseZ = Array.Empty<float>();   // smoothed polarity (+1 ↔ -1)
+    private OnePoleHP[] _hpf1 = Array.Empty<OnePoleHP>(); // 6 dB/oct
+    private Biquad[] _hpf2 = Array.Empty<Biquad>();     // 12 dB/oct
+    private float[] _hpfMixZ = Array.Empty<float>();   // ramp 0..1
 
     private double _fs = 48000.0;
     private int _configuredChannels = -1;
@@ -77,7 +80,10 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             _adaaPrev.Length != channels ||
             _outputZ.Length != channels ||
             _padZ.Length != channels ||
-            _phaseZ.Length != channels;
+            _phaseZ.Length != channels ||
+            _hpf1.Length != channels ||
+            _hpf2.Length != channels ||
+            _hpfMixZ.Length != channels;
 
         if (sizeMismatch)
         {
@@ -96,10 +102,16 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             _outputZ = new float[channels];
             _padZ = new float[channels];
             _phaseZ = new float[channels];
+            _hpf1 = new OnePoleHP[channels];
+            _hpf2 = new Biquad[channels];
+            _hpfMixZ = new float[channels];
         }
 
         if (sizeMismatch || _configuredFs != _fs || _configuredChannels != channels)
         {
+            const double HPF_FREQ = 80.0;      // Neve common setting; 18 dB/oct overall
+            const double HPF_Q = 0.707;     // biquad stage for Butterworth-ish section
+
             for (int ch = 0; ch < channels; ch++)
             {
                 _rms[ch].Setup(_fs, attackMs: 5.0, releaseMs: 60.0);
@@ -110,6 +122,8 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
                 _lpHfTamer[ch].Setup(_fs, cutoffHz: 22000.0);
                 _lozLP[ch].Setup(_fs, cutoffHz: 6000.0);
                 _dc[ch].Setup(_fs, 8.0);
+                _hpf1[ch].Setup(_fs, HPF_FREQ);
+                _hpf2[ch].SetHighPass(_fs, HPF_FREQ, HPF_Q);
             }
             _configuredFs = _fs;
             _configuredChannels = channels;
@@ -171,6 +185,9 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
         // target +1 when OFF, -1 when ON
         float phaseTargetBlock = phaseOn ? -1.0f : 1.0f;
 
+        bool hpfOn = Model.Hpf.Value;
+        float hpfTargetBlock = hpfOn ? 1.0f : 0.0f;
+
         int channels = inputBus.ChannelCount;
         for (int ch = 0; ch < channels; ch++)
         {
@@ -197,6 +214,11 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
 
             // initialize smoothed gain on first buffer
             if (_gainZ[ch] == 0f) _gainZ[ch] = gain;
+
+            if (_hpfMixZ[ch] == 0f && hpfOn) _hpfMixZ[ch] = 1.0f;
+            float hpfMix = _hpfMixZ[ch];
+            float hpfInc = (hpfTargetBlock - hpfMix) / Math.Max(1, data.SampleCount);
+
 
             float g = _gainZ[ch];
             float gInc = (gain - g) / Math.Max(1, data.SampleCount);
@@ -248,6 +270,11 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
                     float xLp = _lozLP[ch].Process(x);
                     x = (1.0f - lozBlend) * x + lozBlend * xLp;
                 }
+
+                // HPF stage (18 dB/oct via 1st + 2nd)
+                hpfMix += hpfInc;
+                float xHP = _hpf2[ch].Process(_hpf1[ch].Process(x));
+                x = (1.0f - hpfMix) * x + hpfMix * xHP;
 
                 // 2) RMS envelope → drive control (s in 0..1)
                 float e = rms.Process(x);
@@ -301,6 +328,7 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             _lozBlendZ[ch] = lozBlend;
             _lozPadZ[ch] = lozPad;
             _outputZ[ch] = outNow;
+            _hpfMixZ[ch] = hpfMix;
         }
     }
 
@@ -395,6 +423,28 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             z1 = z2 = 0f;
         }
 
+        public void SetHighPass(double fs, double f0, double Q = 0.707)
+        {
+            double w0 = 2 * Math.PI * f0 / fs;
+            double cosw0 = Math.Cos(w0);
+            double sinw0 = Math.Sin(w0);
+            double alpha = sinw0 / (2 * Q);
+
+            double b0 = (1 + cosw0) / 2;
+            double b1 = -(1 + cosw0);
+            double b2 = (1 + cosw0) / 2;
+            double a0 = 1 + alpha;
+            double a1 = -2 * cosw0;
+            double a2 = 1 - alpha;
+
+            this.b0 = (float)(b0 / a0);
+            this.b1 = (float)(b1 / a0);
+            this.b2 = (float)(b2 / a0);
+            this.a1 = (float)(a1 / a0);
+            this.a2 = (float)(a2 / a0);
+            z1 = z2 = 0f;
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public float Process(float x)
         {
@@ -435,6 +485,27 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
         private float x1, y1;
 
         public void Setup(double fs, double fHz = 10.0)
+        {
+            a = (float)Math.Exp(-2.0 * Math.PI * fHz / fs);
+            x1 = y1 = 0f;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public float Process(float x)
+        {
+            float y = x - x1 + a * y1;
+            x1 = ZapDenorm(x);
+            y1 = ZapDenorm(y);
+            return y;
+        }
+    }
+
+    private struct OnePoleHP
+    {
+        private float a; // pole (0..1)
+        private float x1, y1;
+
+        public void Setup(double fs, double fHz)
         {
             a = (float)Math.Exp(-2.0 * Math.PI * fHz / fs);
             x1 = y1 = 0f;
