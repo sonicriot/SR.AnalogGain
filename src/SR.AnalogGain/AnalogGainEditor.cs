@@ -36,7 +36,7 @@ namespace SR.AnalogGain
             _controller = controller;
             _model = model;
 
-            // Match FixedDualKnobWindow signature (left = GAIN, right = OUTPUT)
+            // Match FixedDualKnobWindow signature (left = GAIN, right = OUTPUT, LO-Z)
             _window = new UI.Win32.FixedDualKnobWindow(
                 // Left knob (GAIN)
                 getNormalizedLeft: () => (float)_model.Gain.NormalizedValue,
@@ -50,8 +50,15 @@ namespace SR.AnalogGain
                 beginRight: () => _controller.BeginEditParameter(_model.Output),
                 performRight: nv => _model.Output.NormalizedValue = (float)Math.Clamp(nv, 0.0, 1.0),
                 endRight: () => _controller.EndEditParameter(),
-                minDbRight: -24.0, maxDbRight: +12.0
+                minDbRight: -24.0, maxDbRight: +12.0,
+
+                // NEW: LO-Z toggle
+                getLoZ: () => _model.LoZ.Value,
+                beginLoZ: () => _controller.BeginEditParameter(_model.LoZ),
+                performLoZ: v => _model.LoZ.Value = v,
+                endLoZ: () => _controller.EndEditParameter()
             );
+
         }
 
         // ---- IAudioPluginView ----------------------------------------------

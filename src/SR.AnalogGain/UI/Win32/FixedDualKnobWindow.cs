@@ -27,12 +27,17 @@ namespace SR.AnalogGain.UI.Win32
 
         private readonly AnalogKnobWindow _leftKnob;
         private readonly AnalogKnobWindow _rightKnob;
+        private SwitchWindow _lozSwitch;
 
         private Bitmap? _bg1024x512;
 
         private const int OuterPad = 18;
         private const int MiddleGap = 24;
         private const int InnerPad = 24;
+
+        private const int SwitchSlots = 4;         // reserve 4 vertical slots
+        private const int SwitchHGapPx = 12;       // extra horizontal padding around switch
+        private const int BaseLogicalW = 1024;     // used for scale derivation
 
         private readonly WndProc _wndProcDelegate;
 
@@ -42,7 +47,9 @@ namespace SR.AnalogGain.UI.Win32
             double minDbLeft, double maxDbLeft,
             Func<float> getNormalizedRight,
             Action beginRight, Action<double> performRight, Action endRight,
-            double minDbRight, double maxDbRight
+            double minDbRight, double maxDbRight,
+            Func<bool> getLoZ, 
+            Action beginLoZ, Action<bool> performLoZ, Action endLoZ
         )
         {
             _wndProcDelegate = CustomWndProc;
@@ -60,6 +67,16 @@ namespace SR.AnalogGain.UI.Win32
                 faceResName: "KnobFace512.png",
                 topResName: "KnobTop512_gray.png",
                 pointerResName: "knob_pointer_sprite_300x300_x73_clockwise263_gray.png");
+
+            _lozSwitch = new SwitchWindow(
+                resOff: "Switch-off.png",
+                resOn: "Switch-on.png",
+                label: "LO-Z",
+                get: getLoZ,
+                begin: beginLoZ,
+                perform: performLoZ,
+                end: endLoZ
+            );
         }
 
         public bool AttachToParent(IntPtr parentHwnd)
@@ -81,6 +98,7 @@ namespace SR.AnalogGain.UI.Win32
 
             _leftKnob.Create(_hwnd, 0, 0, _width / 2, _height);
             _rightKnob.Create(_hwnd, _width / 2, 0, _width / 2, _height);
+            _lozSwitch.Create(_hwnd, 0, 0, 10, 10); // real size set in LayoutChildren()
 
             // dar a los knobs referencia del fondo y tamaño del contenedor
             PropagateBackgroundRef();
@@ -93,6 +111,7 @@ namespace SR.AnalogGain.UI.Win32
         {
             _leftKnob.Destroy();
             _rightKnob.Destroy();
+            _lozSwitch.Destroy();
 
             _bg1024x512?.Dispose(); _bg1024x512 = null;
 
@@ -128,35 +147,76 @@ namespace SR.AnalogGain.UI.Win32
         {
             _leftKnob.Refresh();
             _rightKnob.Refresh();
+            _lozSwitch?.Refresh();
             if (_hwnd != IntPtr.Zero) InvalidateRect(_hwnd, IntPtr.Zero, false);
         }
+
+        //private void LayoutChildren()
+        //{
+        //    if (_hwnd == IntPtr.Zero) return;
+
+        //    int innerW = Math.Max(1, _width - 2 * OuterPad);
+        //    int innerH = Math.Max(1, _height - 2 * OuterPad);
+
+        //    int columnW = (innerW - MiddleGap) / 2;
+        //    int side = Math.Max(1, Math.Min(columnW, innerH) - InnerPad);
+
+        //    // Left column
+        //    int leftX = OuterPad;
+        //    int leftY = OuterPad;
+        //    _leftKnob.SetBounds(leftX, leftY, side, side);
+
+        //    // Right column
+        //    int rightX = OuterPad + columnW + MiddleGap;
+        //    int rightY = OuterPad;
+        //    _rightKnob.SetBounds(rightX, rightY, side, side);
+        //}
 
         private void LayoutChildren()
         {
             if (_hwnd == IntPtr.Zero) return;
 
+            // whatever your original margins were
             int innerW = Math.Max(1, _width - 2 * OuterPad);
             int innerH = Math.Max(1, _height - 2 * OuterPad);
 
-            int columnW = (innerW - MiddleGap) / 2;
-            int side = Math.Max(1, Math.Min(columnW, innerH) - InnerPad);
+            // Keep knob sizing exactly as before — DO NOT subtract center column width.
+            // If your original code computed 'side' from innerH (square knobs), keep that:
+            int side = Math.Min(innerH, (innerW - 2 * MiddleGap) / 2);
 
-            // Left column
+            // Left knob
             int leftX = OuterPad;
             int leftY = OuterPad;
             _leftKnob.SetBounds(leftX, leftY, side, side);
 
-            // Right column
-            int rightX = OuterPad + columnW + MiddleGap;
+            // Right knob
+            int rightX = _width - OuterPad - side;
             int rightY = OuterPad;
             _rightKnob.SetBounds(rightX, rightY, side, side);
+
+            // ── Center column OVERLAY (does NOT change knob sizes) ─────────────────
+            // Switch width: native 115px + horizontal padding (scaled)
+            float ui = Math.Max(0.1f, (float)_width / BaseLogicalW);
+            int centerW = (int)Math.Round((115 + 2 * SwitchHGapPx) * ui);
+
+            // Center rect between the two knobs, same top as knobs, same height as knobs
+            int centerX = (_width - centerW) / 2;
+            int centerY = leftY;
+            int centerH = side;
+
+            // Reserve 4 equal vertical slots; place LO-Z in slot 0 (top)
+            int slotH = Math.Max(1, centerH / SwitchSlots);
+            _lozSwitch?.SetBounds(centerX, centerY + 0 * slotH, centerW, slotH);
         }
+
+
 
         private void PropagateBackgroundRef()
         {
             // cada knob necesita: ref al bitmap de fondo y tamaño actual del contenedor
             _leftKnob.SetContainerBackgroundReference(_bg1024x512, _width, _height);
             _rightKnob.SetContainerBackgroundReference(_bg1024x512, _width, _height);
+            _lozSwitch?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
         }
 
         private IntPtr CustomWndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
