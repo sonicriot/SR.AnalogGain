@@ -128,14 +128,14 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
         const double maxDb = +12.0;
         double normalized = Model.Gain.NormalizedValue;
         double gainDb = minDb + normalized * (maxDb - minDb);
-        float gain = (float)Math.Pow(10.0, gainDb / 20.0);
+        float gain = DbToLin(gainDb);
 
         // Output mapping: normalized [0..1] → dB → linear
         const double outMinDb = -24.0;
         const double outMaxDb = +12.0;
         double outNorm = Model.Output.NormalizedValue;
         double outDb = outMinDb + outNorm * (outMaxDb - outMinDb);
-        float outTarget = (float)Math.Pow(10.0, outDb / 20.0);
+        float outTarget = DbToLin(outDb);
 
         // RMS → drive curve
         const float kneeLo = 0.200f;  // ~ -14 dBFS
@@ -146,6 +146,15 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
         const float asymMax = 0.15f;
         const float kBiasBase = 0.028f; // effective bias at low drive
         const float kBiasHigh = 0.042f; // effective bias at high drive
+
+        // --- LO-Z (block-scope) ---
+        // Read the param once per block
+        bool lozOn = Model.LoZ.Value;
+        // Precompute the targets once per block (dB -> linear conversions)
+        const float kLoZPadDb = -1.0f;
+        const float kLoZShelfDb = -1.5f;
+        float lozPadTargetBlock = lozOn ? DbToLin(kLoZPadDb) : 1.0f;
+        float lozBlendTargetBlock = lozOn ? (1.0f - DbToLin(kLoZShelfDb)) : 0.0f;
 
         int channels = inputBus.ChannelCount;
         for (int ch = 0; ch < channels; ch++)
@@ -172,12 +181,10 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             float outNow = _outputZ[ch];
             float outInc = (outTarget - outNow) / Math.Max(1, data.SampleCount);
 
-            // --- LO-Z precompute (once per block) ---
-            bool lozOn = Model.LoZ.Value;
-            const float kLoZPadDb = -1.0f;
-            const float kLoZShelfDb = -1.5f;
-            float lozPadTarget = lozOn ? (float)Math.Pow(10.0, kLoZPadDb / 20.0) : 1.0f;
-            float lozBlendTarget = lozOn ? (1.0f - (float)Math.Pow(10.0, kLoZShelfDb / 20.0)) : 0.0f;
+            // --- LO-Z precompute (per channel, using block targets) ---
+            float lozPadTarget = lozPadTargetBlock;
+            float lozBlendTarget = lozBlendTargetBlock;
+            // Seed ramps if this channel has no prior state and LO-Z starts ON
             if (_lozBlendZ[ch] == 0f && _lozPadZ[ch] == 0f && lozOn)
             {
                 _lozBlendZ[ch] = lozBlendTarget;
@@ -185,8 +192,9 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             }
             float lozBlend = _lozBlendZ[ch];
             float lozPad = _lozPadZ[ch];
-            float lozBlendInc = (lozBlendTarget - lozBlend) / Math.Max(1, data.SampleCount);
-            float lozPadInc = (lozPadTarget - lozPad) / Math.Max(1, data.SampleCount);
+            float invCount = 1.0f / Math.Max(1, data.SampleCount);
+            float lozBlendInc = (lozBlendTarget - lozBlend) * invCount;
+            float lozPadInc = (lozPadTarget - lozPad) * invCount;
 
             for (int i = 0; i < data.SampleCount; i++)
             {
@@ -270,6 +278,12 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
         float t = MathF.Min(1f, MathF.Max(0f, (x - a) / MathF.Max(1e-9f, b - a)));
         return t * t * (3f - 2f * t);
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static float DbToLin(float db) => (float)Math.Pow(10.0, db / 20.0);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static float DbToLin(double db) => (float)Math.Pow(10.0, db / 20.0);
 
     private struct RmsDetector
     {
