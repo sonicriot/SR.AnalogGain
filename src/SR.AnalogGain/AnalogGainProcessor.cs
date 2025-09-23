@@ -38,6 +38,8 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
     private const double PostHS_Freq = 18000.0; // Hz
     private const double PostHS_Gain = -1.4;   // dB (subtle tilt)
 
+    private const float AntiDenorm = 1e-30f; // ~ -300 dBFS
+
     protected override bool Initialize(AudioHostApplication host)
     {
         AddAudioInput("AudioInput", SpeakerArrangement.SpeakerStereo);
@@ -242,9 +244,9 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
                 float xPre = preLF.Process(x);
 
                 // 4) Nonlinearity (ADAA).
-                float ySh = Shaper.ProcessAsymTanhADAA(xPre, ref _adaaPrev[ch], dynDrive, asym, kBiasEff);
+                float ySh = Shaper.ProcessAsymTanhADAA(xPre + AntiDenorm, ref _adaaPrev[ch], dynDrive, asym, kBiasEff);
 
-                // 4b) Remove tiny DC introduced by asymmetry
+                // 4b) Remove tiny DC introduced by asymmetry and AntiDenorm
                 ySh = dc.Process(ySh);
 
                 // 5) Dry/Wet and post-EQ
@@ -285,6 +287,13 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     static float DbToLin(double db) => (float)Math.Pow(10.0, db / 20.0);
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static float ZapDenorm(float v)
+    {
+        // -400 dBFS threshold is safely inaudible, but avoids subnormals.
+        return MathF.Abs(v) < 1e-20f ? 0f : v;
+    }
+
     private struct RmsDetector
     {
         private float _env;
@@ -309,7 +318,7 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
 
     private struct Biquad
     {
-        private float a0, a1, a2, b1, b2, z1, z2;
+        private float b0, b1, b2, a1, a2, z1, z2;
 
         public void SetLowShelf(double fs, double f0, double dBgain, double Q = 0.6)
         {
@@ -325,11 +334,11 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             double a1 = -2 * ((A - 1) + (A + 1) * cosw0);
             double a2 = (A + 1) + (A - 1) * cosw0 - 2 * Math.Sqrt(A) * alpha;
 
-            this.a0 = (float)(b0 / a0);
-            this.a1 = (float)(b1 / a0);
-            this.a2 = (float)(b2 / a0);
-            this.b1 = (float)(a1 / a0);
-            this.b2 = (float)(a2 / a0);
+            this.b0 = (float)(b0 / a0);
+            this.b1 = (float)(b1 / a0);
+            this.b2 = (float)(b2 / a0);
+            this.a1 = (float)(a1 / a0);
+            this.a2 = (float)(a2 / a0);
             z1 = z2 = 0f;
         }
 
@@ -347,20 +356,20 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             double a1 = 2 * ((A - 1) - (A + 1) * cosw0);
             double a2 = (A + 1) - (A - 1) * cosw0 - 2 * Math.Sqrt(A) * alpha;
 
-            this.a0 = (float)(b0 / a0);
-            this.a1 = (float)(b1 / a0);
-            this.a2 = (float)(b2 / a0);
-            this.b1 = (float)(a1 / a0);
-            this.b2 = (float)(a2 / a0);
+            this.b0 = (float)(b0 / a0);
+            this.b1 = (float)(b1 / a0);
+            this.b2 = (float)(b2 / a0);
+            this.a1 = (float)(a1 / a0);
+            this.a2 = (float)(a2 / a0);
             z1 = z2 = 0f;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public float Process(float x)
         {
-            float y = a0 * x + z1;
-            z1 = a1 * x - b1 * y + z2;
-            z2 = a2 * x - b2 * y;
+            float y = b0 * x + z1;
+            z1 = b1 * x - a1 * y + z2;
+            z2 = b2 * x - a2 * y;
             return y;
         }
     }
@@ -383,6 +392,7 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
         {
             // y[n] = b*x[n] + a*y[n-1]
             z = b * x + a * z;
+            z = ZapDenorm(z);
             return z;
         }
     }
@@ -403,8 +413,8 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
         public float Process(float x)
         {
             float y = x - x1 + a * y1;
-            x1 = x;
-            y1 = y;
+            x1 = ZapDenorm(x);
+            y1 = ZapDenorm(y);
             return y;
         }
     }
