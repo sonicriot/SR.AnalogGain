@@ -28,6 +28,7 @@ namespace SR.AnalogGain.UI.Win32
         private readonly AnalogKnobWindow _leftKnob;
         private readonly AnalogKnobWindow _rightKnob;
         private SwitchWindow _lozSwitch;
+        private SwitchWindow _padSwitch;
 
         private Bitmap? _bg1024x512;
 
@@ -38,6 +39,10 @@ namespace SR.AnalogGain.UI.Win32
         private const int SwitchSlots = 4;         // reserve 4 vertical slots
         private const int SwitchHGapPx = 12;       // extra horizontal padding around switch
         private const int BaseLogicalW = 1024;     // used for scale derivation
+        private const int SwitchNativeW = 115;   // px of the bitmap
+        private const int SwitchNativeH = 60;    // px of the bitmap
+        private const int SwitchGapPx = 10;    // logical gap between switches (scaled)
+
 
         private readonly WndProc _wndProcDelegate;
 
@@ -49,7 +54,9 @@ namespace SR.AnalogGain.UI.Win32
             Action beginRight, Action<double> performRight, Action endRight,
             double minDbRight, double maxDbRight,
             Func<bool> getLoZ, 
-            Action beginLoZ, Action<bool> performLoZ, Action endLoZ
+            Action beginLoZ, Action<bool> performLoZ, Action endLoZ,
+            Func<bool> getPad, 
+            Action beginPad, Action<bool> performPad, Action endPad
         )
         {
             _wndProcDelegate = CustomWndProc;
@@ -75,8 +82,16 @@ namespace SR.AnalogGain.UI.Win32
                 get: getLoZ,
                 begin: beginLoZ,
                 perform: performLoZ,
-                end: endLoZ
-            );
+                end: endLoZ);
+
+            _padSwitch = new SwitchWindow( // NEW
+                resOff: "Switch-off.png",
+                resOn: "Switch-on.png",
+                label: "PAD",
+                get: getPad, 
+                begin: beginPad, 
+                perform: performPad, 
+                end: endPad);
         }
 
         public bool AttachToParent(IntPtr parentHwnd)
@@ -98,7 +113,8 @@ namespace SR.AnalogGain.UI.Win32
 
             _leftKnob.Create(_hwnd, 0, 0, _width / 2, _height);
             _rightKnob.Create(_hwnd, _width / 2, 0, _width / 2, _height);
-            _lozSwitch.Create(_hwnd, 0, 0, 10, 10); // real size set in LayoutChildren()
+            _lozSwitch.Create(_hwnd, 0, 0, 10, 10);
+            _padSwitch.Create(_hwnd, 0, 0, 10, 10);
 
             // dar a los knobs referencia del fondo y tamaño del contenedor
             PropagateBackgroundRef();
@@ -112,6 +128,7 @@ namespace SR.AnalogGain.UI.Win32
             _leftKnob.Destroy();
             _rightKnob.Destroy();
             _lozSwitch.Destroy();
+            _padSwitch.Destroy();
 
             _bg1024x512?.Dispose(); _bg1024x512 = null;
 
@@ -148,29 +165,9 @@ namespace SR.AnalogGain.UI.Win32
             _leftKnob.Refresh();
             _rightKnob.Refresh();
             _lozSwitch?.Refresh();
+            _padSwitch?.Refresh();
             if (_hwnd != IntPtr.Zero) InvalidateRect(_hwnd, IntPtr.Zero, false);
         }
-
-        //private void LayoutChildren()
-        //{
-        //    if (_hwnd == IntPtr.Zero) return;
-
-        //    int innerW = Math.Max(1, _width - 2 * OuterPad);
-        //    int innerH = Math.Max(1, _height - 2 * OuterPad);
-
-        //    int columnW = (innerW - MiddleGap) / 2;
-        //    int side = Math.Max(1, Math.Min(columnW, innerH) - InnerPad);
-
-        //    // Left column
-        //    int leftX = OuterPad;
-        //    int leftY = OuterPad;
-        //    _leftKnob.SetBounds(leftX, leftY, side, side);
-
-        //    // Right column
-        //    int rightX = OuterPad + columnW + MiddleGap;
-        //    int rightY = OuterPad;
-        //    _rightKnob.SetBounds(rightX, rightY, side, side);
-        //}
 
         private void LayoutChildren()
         {
@@ -194,19 +191,39 @@ namespace SR.AnalogGain.UI.Win32
             int rightY = OuterPad;
             _rightKnob.SetBounds(rightX, rightY, side, side);
 
-            // ── Center column OVERLAY (does NOT change knob sizes) ─────────────────
-            // Switch width: native 115px + horizontal padding (scaled)
+            // --- Center column overlay (switch group) ---
             float ui = Math.Max(0.1f, (float)_width / BaseLogicalW);
-            int centerW = (int)Math.Round((115 + 2 * SwitchHGapPx) * ui);
 
-            // Center rect between the two knobs, same top as knobs, same height as knobs
+            // Column width: native switch width + a bit of left/right padding
+            int centerW = (int)Math.Round((SwitchNativeW + 2 * SwitchHGapPx) * ui);
             int centerX = (_width - centerW) / 2;
             int centerY = leftY;
             int centerH = side;
 
-            // Reserve 4 equal vertical slots; place LO-Z in slot 0 (top)
-            int slotH = Math.Max(1, centerH / SwitchSlots);
-            _lozSwitch?.SetBounds(centerX, centerY + 0 * slotH, centerW, slotH);
+            // Switch size at current scale
+            int swH = (int)Math.Round(SwitchNativeH * ui);
+            int swW = Math.Min(centerW, (int)Math.Round(SwitchNativeW * ui));
+            int gap = (int)Math.Round(SwitchGapPx * ui);
+
+            // Reserve **4 slots** (future-proof). We only place the first two now.
+            int totalSlots = SwitchSlots;                 // 4
+            int slotPitch = swH + gap;                   // height each "slot" consumes
+            int groupH = swH * totalSlots + gap * (totalSlots - 1);
+
+            // Center the 4-slot group vertically inside the column.
+            // This makes slots 0 & 1 live ABOVE the vertical center line, as requested.
+            int groupTopY = centerY + Math.Max(0, (centerH - groupH) / 2);
+            int swX = centerX + (centerW - swW) / 2;
+
+            // Slot positions (for readability)
+            int slot0Y = groupTopY + 0 * slotPitch; // LO-Z
+            int slot1Y = groupTopY + 1 * slotPitch; // PAD
+                                                    // int slot2Y = groupTopY + 2 * slotPitch; // future switch #3
+                                                    // int slot3Y = groupTopY + 3 * slotPitch; // future switch #4
+
+            // Place current switches in the TOP HALF
+            _lozSwitch?.SetBounds(swX, slot0Y, swW, swH);
+            _padSwitch?.SetBounds(swX, slot1Y, swW, swH);
         }
 
 
@@ -217,6 +234,7 @@ namespace SR.AnalogGain.UI.Win32
             _leftKnob.SetContainerBackgroundReference(_bg1024x512, _width, _height);
             _rightKnob.SetContainerBackgroundReference(_bg1024x512, _width, _height);
             _lozSwitch?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
+            _padSwitch?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
         }
 
         private IntPtr CustomWndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)

@@ -52,13 +52,18 @@ namespace SR.AnalogGain
                 endRight: () => _controller.EndEditParameter(),
                 minDbRight: -24.0, maxDbRight: +12.0,
 
-                // NEW: LO-Z toggle
+                // LO-Z switch
                 getLoZ: () => _model.LoZ.Value,
                 beginLoZ: () => _controller.BeginEditParameter(_model.LoZ),
                 performLoZ: v => _model.LoZ.Value = v,
-                endLoZ: () => _controller.EndEditParameter()
-            );
+                endLoZ: () => _controller.EndEditParameter(),
 
+                // PAD switch (new)
+                getPad: () => _model.Pad.Value,
+                beginPad: () => _controller.BeginEditParameter(_model.Pad),
+                performPad: v => _model.Pad.Value = v,
+                endPad: () => _controller.EndEditParameter()
+            );
         }
 
         // ---- IAudioPluginView ----------------------------------------------

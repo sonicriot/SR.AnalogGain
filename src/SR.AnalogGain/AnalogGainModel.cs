@@ -22,9 +22,11 @@ public class AnalogGainModel : AudioProcessorModel
         Output.NormalizedValue = norm0Out;
 
         LoZ = AddParameter(new AudioBoolParameter("Lo-Z", id: 30));
+        Pad = AddParameter(new AudioBoolParameter("PAD", id: 40));
     }
 
     public AudioParameter Gain { get; }
     public AudioParameter Output { get; }
     public AudioBoolParameter LoZ { get; }
+    public AudioBoolParameter Pad { get; }
 }
