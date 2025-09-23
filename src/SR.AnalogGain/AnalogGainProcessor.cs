@@ -130,14 +130,14 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
         const double maxDb = +12.0;
         double normalized = Model.Gain.NormalizedValue;
         double gainDb = minDb + normalized * (maxDb - minDb);
-        float gain = DbToLin(gainDb);
+        float gain = DbToLin((float)gainDb);
 
         // Output mapping: normalized [0..1] → dB → linear
         const double outMinDb = -24.0;
         const double outMaxDb = +12.0;
         double outNorm = Model.Output.NormalizedValue;
         double outDb = outMinDb + outNorm * (outMaxDb - outMinDb);
-        float outTarget = DbToLin(outDb);
+        float outTarget = DbToLin((float)outDb);
 
         // RMS → drive curve
         const float kneeLo = 0.200f;  // ~ -14 dBFS
@@ -207,7 +207,7 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
                 lozPad += lozPadInc;
                 //Clamp
                 lozBlend = MathF.Min(1f, MathF.Max(0f, lozBlend));
-                lozPad = MathF.Max(0f, lozPad);
+                lozPad = MathF.Min(1f, MathF.Max(0f, lozPad));
 
                 float x = input[i] * g;
 
@@ -263,7 +263,7 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
 
             }
             lozBlend = MathF.Min(1f, MathF.Max(0f, lozBlend));
-            lozPad = MathF.Max(0f, lozPad);
+            lozPad = MathF.Min(1f, MathF.Max(0f, lozPad));
 
             _gainZ[ch] = g;
             _lozBlendZ[ch] = lozBlend;
@@ -282,10 +282,8 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static float DbToLin(float db) => (float)Math.Pow(10.0, db / 20.0);
+    static float DbToLin(float db) => (float)MathF.Pow(10.0f, db / 20.0f);
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static float DbToLin(double db) => (float)Math.Pow(10.0, db / 20.0);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     static float ZapDenorm(float v)
@@ -312,6 +310,7 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             float e = x * x;
             float coeff = (e > _env) ? _aAtk : _aRel;
             _env = coeff * _env + (1f - coeff) * e;
+            _env = ZapDenorm(_env);
             return MathF.Sqrt(_env) + 1e-12f;
         }
     }
