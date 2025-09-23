@@ -182,13 +182,22 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             float lozPad = _lozPadZ[ch];
             float lozBlendInc = (lozBlendTarget - lozBlend) / Math.Max(1, data.SampleCount);
             float lozPadInc = (lozPadTarget - lozPad) / Math.Max(1, data.SampleCount);
+            if (_lozBlendZ[ch] == 0f && _lozPadZ[ch] == 0f && lozOn)
+            {
+                _lozBlendZ[ch] = lozBlendTarget;
+                _lozPadZ[ch] = lozPadTarget;
+            }
 
             for (int i = 0; i < data.SampleCount; i++)
             {
                 // 1) Linear gain (smoothed)
                 g += gInc;
+                // ramp LO-Z params
                 lozBlend += lozBlendInc;
                 lozPad += lozPadInc;
+                //Clamp
+                lozBlend = MathF.Min(1f, MathF.Max(0f, lozBlend));
+                lozPad = MathF.Max(0f, lozPad);
 
                 float x = input[i] * g;
 
@@ -243,6 +252,9 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
                 output[i] = y * outNow;
 
             }
+            lozBlend = MathF.Min(1f, MathF.Max(0f, lozBlend));
+            lozPad = MathF.Max(0f, lozPad);
+
             _gainZ[ch] = g;
             _lozBlendZ[ch] = lozBlend;
             _lozPadZ[ch] = lozPad;
