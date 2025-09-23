@@ -15,6 +15,8 @@
     <None Remove="Assets\knob_pointer_sprite_300x300_x73_clockwise263.png" />
     <None Remove="Assets\knob_pointer_sprite_300x300_x73_clockwise263_gray.png" />
     <None Remove="Assets\knob_pointer_sprite_300x300_x73_clockwise263_red.png" />
+    <None Remove="Assets\Switch-off.png" />
+    <None Remove="Assets\Switch-on.png" />
   </ItemGroup>
 
   <ItemGroup>
@@ -28,6 +30,8 @@
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </EmbeddedResource>
     <EmbeddedResource Include="Assets\knob_pointer_sprite_300x300_x73_clockwise263_gray.png" />
+    <EmbeddedResource Include="Assets\Switch-off.png" />
+    <EmbeddedResource Include="Assets\Switch-on.png" />
   </ItemGroup>
 
   <ItemGroup>
