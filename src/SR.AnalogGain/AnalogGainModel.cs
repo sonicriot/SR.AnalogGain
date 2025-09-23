@@ -21,8 +21,10 @@ public class AnalogGainModel : AudioProcessorModel
         // Explicitly set the normalized value to ensure 0 dB initialization
         Output.NormalizedValue = norm0Out;
 
+        LoZ = AddParameter(new AudioBoolParameter("Lo-Z", id: 30));
     }
 
     public AudioParameter Gain { get; }
     public AudioParameter Output { get; }
+    public AudioBoolParameter LoZ { get; }
 }

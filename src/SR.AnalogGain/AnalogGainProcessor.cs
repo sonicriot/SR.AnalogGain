@@ -20,6 +20,9 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
     private Biquad[] _postHS2 = Array.Empty<Biquad>();
     private OnePoleLP[] _lp18k = Array.Empty<OnePoleLP>();   // very gentle HF tamer
     private DcBlock[] _dc = Array.Empty<DcBlock>();
+    private OnePoleLP[] _lozLP = Array.Empty<OnePoleLP>();  // LO-Z lowpass (6 kHz)
+    private float[] _lozBlendZ = Array.Empty<float>();
+    private float[] _lozPadZ = Array.Empty<float>();
     private float[] _gainZ = Array.Empty<float>();           // smoothed gain
     private float[] _adaaPrev = Array.Empty<float>();        // ADAA state
     private float[] _outputZ = Array.Empty<float>();
@@ -63,6 +66,9 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             _postHS2.Length != channels ||
             _lp18k.Length != channels ||
             _dc.Length != channels ||
+            _lozLP.Length != channels ||
+            _lozBlendZ.Length != channels ||
+            _lozPadZ.Length != channels ||
             _gainZ.Length != channels ||
             _adaaPrev.Length != channels ||
             _outputZ.Length != channels;
@@ -76,6 +82,9 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             _postHS2 = new Biquad[channels];
             _lp18k = new OnePoleLP[channels];
             _dc = new DcBlock[channels];
+            _lozLP = new OnePoleLP[channels];
+            _lozBlendZ = new float[channels];
+            _lozPadZ = new float[channels];
             _gainZ = new float[channels];
             _adaaPrev = new float[channels];
             _outputZ = new float[channels];
@@ -91,6 +100,7 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
                 _postHS[ch].SetHighShelf(_fs, PostHS_Freq, PostHS_Gain, 0.7);
                 _postHS2[ch].SetHighShelf(_fs, 4000.0, 0.6, 0.5);
                 _lp18k[ch].Setup(_fs, cutoffHz: 22000.0);
+                _lozLP[ch].Setup(_fs, cutoffHz: 6000.0);
                 _dc[ch].Setup(_fs, 8.0);
             }
             _configuredFs = _fs;
@@ -125,7 +135,6 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
         const double outMaxDb = +12.0;
         double outNorm = Model.Output.NormalizedValue;
         double outDb = outMinDb + outNorm * (outMaxDb - outMinDb);
-
         float outTarget = (float)Math.Pow(10.0, outDb / 20.0);
 
         // RMS → drive curve
@@ -163,11 +172,33 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             float outNow = _outputZ[ch];
             float outInc = (outTarget - outNow) / Math.Max(1, data.SampleCount);
 
+            // --- LO-Z precompute (once per block) ---
+            bool lozOn = Model.LoZ.Value;
+            const float kLoZPadDb = -1.0f;
+            const float kLoZShelfDb = -1.5f;
+            float lozPadTarget = lozOn ? (float)Math.Pow(10.0, kLoZPadDb / 20.0) : 1.0f;
+            float lozBlendTarget = lozOn ? (1.0f - (float)Math.Pow(10.0, kLoZShelfDb / 20.0)) : 0.0f;
+            float lozBlend = _lozBlendZ[ch];
+            float lozPad = _lozPadZ[ch];
+            float lozBlendInc = (lozBlendTarget - lozBlend) / Math.Max(1, data.SampleCount);
+            float lozPadInc = (lozPadTarget - lozPad) / Math.Max(1, data.SampleCount);
+
             for (int i = 0; i < data.SampleCount; i++)
             {
                 // 1) Linear gain (smoothed)
                 g += gInc;
+                lozBlend += lozBlendInc;
+                lozPad += lozPadInc;
+
                 float x = input[i] * g;
+
+                // LO-Z stage: tiny pad + gentle HF tilt (blend with 6 kHz LP)
+                if (lozOn || lozBlend > 1e-6f)
+                {
+                    x *= lozPad;
+                    float xLp = _lozLP[ch].Process(x);
+                    x = (1.0f - lozBlend) * x + lozBlend * xLp;
+                }
 
                 // 2) RMS envelope → drive control (s in 0..1)
                 float e = rms.Process(x);
@@ -210,9 +241,11 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
 
                 outNow += outInc;    // final output trim
                 output[i] = y * outNow;
-                
+
             }
             _gainZ[ch] = g;
+            _lozBlendZ[ch] = lozBlend;
+            _lozPadZ[ch] = lozPad;
             _outputZ[ch] = outNow;
         }
     }
@@ -222,7 +255,7 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static float SmoothStep(float a, float b, float x)
     {
-        float t = MathF.Min(1f, MathF.Max(0f, (x - a) / (b - a)));
+        float t = MathF.Min(1f, MathF.Max(0f, (x - a) / MathF.Max(1e-9f, b - a)));
         return t * t * (3f - 2f * t);
     }
 
@@ -352,10 +385,6 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
 
     private static class Shaper
     {
-        // Small static bias to seed a tiny 2nd harmonic (used in normalization)
-        private const float kBias = 0.006f;
-
-        // ADAA version of the asymmetric normalized tanh
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float ProcessAsymTanhADAA(float x, ref float xz, float dyn, float asym, float kBias)
         {
