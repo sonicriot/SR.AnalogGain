@@ -188,7 +188,16 @@ namespace SR.AnalogGain.UI.Win32
             }
         }
 
-        public void RefreshUI()
+        public void RefreshUI() => RefreshChildrenOnly();
+
+        public void RefreshGainKnob() => _leftKnob?.Refresh();
+        public void RefreshOutputKnob() => _rightKnob?.Refresh();
+        public void RefreshLoZ() => _lozSwitch?.Refresh();
+        public void RefreshPad() => _padSwitch?.Refresh();
+        public void RefreshPhase() => _phaseSwitch?.Refresh();
+        public void RefreshHpf() => _hpfSwitch?.Refresh();
+
+        public void RefreshChildrenOnly()
         {
             _leftKnob?.Refresh();
             _rightKnob?.Refresh();
@@ -196,6 +205,10 @@ namespace SR.AnalogGain.UI.Win32
             _padSwitch?.Refresh();
             _phaseSwitch?.Refresh();
             _hpfSwitch?.Refresh();
+        }
+
+        public void RepaintBackground()
+        {
             if (_hwnd != IntPtr.Zero) InvalidateRect(_hwnd, IntPtr.Zero, false);
         }
 

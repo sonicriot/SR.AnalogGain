@@ -22,12 +22,7 @@ public class AnalogGainController : AudioController<AnalogGainModel>
         // Call base implementation first to handle the parameter change
         base.OnParameterValueChanged(parameter, parameterValueChangedFromHost);
 
-        //Refresh UI when parameters change externally
-        if (_editor != null && parameterValueChangedFromHost)
-        {
-            // Force UI refresh for any parameter change (for debugging)
-            _editor.RefreshUI();
-        }
+        _editor?.RefreshParameter(parameter);
     }
 
     // Called when the host restores the component state (preset loading)

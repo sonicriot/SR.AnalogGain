@@ -198,6 +198,17 @@ namespace SR.AnalogGain
             }
         }
 
+        public void RefreshParameter(AudioParameter parameter)
+        {
+            if (parameter == _model.Gain) { _window.RefreshGainKnob(); return; }
+            if (parameter == _model.Output) { _window.RefreshOutputKnob(); return; }
+            if (parameter == _model.LoZ) { _window.RefreshLoZ(); return; }
+            if (parameter == _model.Pad) { _window.RefreshPad(); return; }
+            if (parameter == _model.Phase) { _window.RefreshPhase(); return; }
+            if (parameter == _model.Hpf) { _window.RefreshHpf(); return; }
+        }
+
+
         // ---- Helpers --------------------------------------------------------
         private void AdjustGainDb(double deltaDb)
         {
