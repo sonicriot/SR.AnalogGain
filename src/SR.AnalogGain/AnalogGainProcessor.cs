@@ -20,17 +20,18 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
     private Biquad[] _postHS2 = Array.Empty<Biquad>();
     private OnePoleLP[] _lpHfTamer = Array.Empty<OnePoleLP>();   // very gentle HF tamer
     private DcBlock[] _dc = Array.Empty<DcBlock>();
-    private OnePoleLP[] _lozLP = Array.Empty<OnePoleLP>();  // LO-Z lowpass (6 kHz)
+    private OnePoleLP[] _lozLP = Array.Empty<OnePoleLP>();       // LO-Z lowpass (6 kHz)
     private float[] _lozBlendZ = Array.Empty<float>();
     private float[] _lozPadZ = Array.Empty<float>();
-    private float[] _gainZ = Array.Empty<float>();           // smoothed gain
-    private float[] _adaaPrev = Array.Empty<float>();        // ADAA state
+    private float[] _gainZ = Array.Empty<float>();               // smoothed gain
+    private float[] _adaaPrev = Array.Empty<float>();            // ADAA state
     private float[] _outputZ = Array.Empty<float>();
     private float[] _padZ = Array.Empty<float>();
-    private float[] _phaseZ = Array.Empty<float>();   // smoothed polarity (+1 ↔ -1)
-    private OnePoleHP[] _hpf1 = Array.Empty<OnePoleHP>(); // 6 dB/oct
-    private Biquad[] _hpf2 = Array.Empty<Biquad>();     // 12 dB/oct
-    private float[] _hpfMixZ = Array.Empty<float>();   // ramp 0..1
+    private float[] _phaseZ = Array.Empty<float>();              // smoothed polarity (+1 ↔ -1)
+    private OnePoleHP[] _hpf1 = Array.Empty<OnePoleHP>();        // 6 dB/oct
+    private Biquad[] _hpf2 = Array.Empty<Biquad>();              // 12 dB/oct
+    private float[] _hpfMixZ = Array.Empty<float>();             // ramp 0..1
+    private float[] _satMixZ = Array.Empty<float>();
 
     private double _fs = 48000.0;
     private int _configuredChannels = -1;
@@ -83,7 +84,8 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             _phaseZ.Length != channels ||
             _hpf1.Length != channels ||
             _hpf2.Length != channels ||
-            _hpfMixZ.Length != channels;
+            _hpfMixZ.Length != channels ||
+            _satMixZ.Length != channels;   // NEW
 
         if (sizeMismatch)
         {
@@ -105,11 +107,12 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             _hpf1 = new OnePoleHP[channels];
             _hpf2 = new Biquad[channels];
             _hpfMixZ = new float[channels];
+            _satMixZ = new float[channels]; // NEW
         }
 
         if (sizeMismatch || _configuredFs != _fs || _configuredChannels != channels)
         {
-            const double HPF_FREQ = 80.0;      // Neve common setting; 18 dB/oct overall
+            const double HPF_FREQ = 80.0;   // Neve common setting; 18 dB/oct overall
             const double HPF_Q = 0.707;     // biquad stage for Butterworth-ish section
 
             for (int ch = 0; ch < channels; ch++)
@@ -159,34 +162,26 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
         double outDb = outMinDb + outNorm * (outMaxDb - outMinDb);
         float outTarget = DbToLin((float)outDb);
 
-        // RMS → drive curve
-        const float kneeLo = 0.200f;  // ~ -14 dBFS
-        const float kneeHi = 0.750f;  // ~  -2.5 dBFS
-        const float kMaxBoost = 1.7f; // max extra drive at s→1
-
-        // Asymmetry / bias ranges
-        const float asymMax = 0.15f;
-        const float kBiasBase = 0.028f; // effective bias at low drive
-        const float kBiasHigh = 0.042f; // effective bias at high drive
-
         // --- LO-Z (block-scope) ---
-        // Read the param once per block
         bool lozOn = Model.LoZ.Value;
-        // Precompute the targets once per block (dB -> linear conversions)
         const float kLoZPadDb = -1.0f;
         const float kLoZShelfDb = -1.5f;
         float lozPadTargetBlock = lozOn ? DbToLin(kLoZPadDb) : 1.0f;
         float lozBlendTargetBlock = lozOn ? (1.0f - DbToLin(kLoZShelfDb)) : 0.0f;
 
+        // --- Other switches ---
         bool padOn = Model.Pad.Value;
         float padTargetBlock = padOn ? 0.1f : 1.0f;
 
         bool phaseOn = Model.Phase.Value;
-        // target +1 when OFF, -1 when ON
         float phaseTargetBlock = phaseOn ? -1.0f : 1.0f;
 
         bool hpfOn = Model.Hpf.Value;
         float hpfTargetBlock = hpfOn ? 1.0f : 0.0f;
+
+        // --- SAT (block-scope target) ---
+        bool satOn = Model.Sat.Value;                // assumes the model has a Color parameter
+        float satTargetBlock = satOn ? 1.0f : 0.0f;  // 0=off constants, 1=Color constants
 
         int channels = inputBus.ChannelCount;
         for (int ch = 0; ch < channels; ch++)
@@ -215,16 +210,16 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             // initialize smoothed gain on first buffer
             if (_gainZ[ch] == 0f) _gainZ[ch] = gain;
 
+            // HPF ramp
             if (_hpfMixZ[ch] == 0f && hpfOn) _hpfMixZ[ch] = 1.0f;
             float hpfMix = _hpfMixZ[ch];
             float hpfInc = (hpfTargetBlock - hpfMix) / Math.Max(1, data.SampleCount);
 
-
             float g = _gainZ[ch];
             float gInc = (gain - g) / Math.Max(1, data.SampleCount);
 
+            // Output trim ramp
             if (_outputZ[ch] == 0f) _outputZ[ch] = outTarget;
-
             float outNow = _outputZ[ch];
             float outInc = (outTarget - outNow) / Math.Max(1, data.SampleCount);
 
@@ -243,24 +238,33 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             float lozBlendInc = (lozBlendTarget - lozBlend) * invCount;
             float lozPadInc = (lozPadTarget - lozPad) * invCount;
 
+            // --- SAT per-channel ramp seed ---
+            if (_satMixZ[ch] == 0f && satOn) _satMixZ[ch] = 1.0f; // seed if we start with ON
+            float satMix = _satMixZ[ch];
+            float satInc = (satTargetBlock - satMix) / Math.Max(1, data.SampleCount);
+
             for (int i = 0; i < data.SampleCount; i++)
             {
                 // 1) Global PAD (pre-input), then smoothed linear gain
                 padNow += padInc;
-                
+
                 // 1) Linear gain (smoothed)
                 g += gInc;
+
                 // ramp LO-Z params
                 lozBlend += lozBlendInc;
                 lozPad += lozPadInc;
-                //Clamp
                 lozBlend = MathF.Min(1f, MathF.Max(0f, lozBlend));
                 lozPad = MathF.Min(1f, MathF.Max(0f, lozPad));
 
+                // ramp SAT mix
+                satMix += satInc;
+                satMix = MathF.Min(1f, MathF.Max(0f, satMix));
+
                 float x = input[i] * padNow * g;
 
-                phaseNow += phaseInc;
                 // polarity flip as a short ramp to avoid clicks
+                phaseNow += phaseInc;
                 x *= phaseNow;
 
                 // LO-Z stage: tiny pad + gentle HF tilt (blend with 6 kHz LP)
@@ -276,31 +280,44 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
                 float xHP = _hpf2[ch].Process(_hpf1[ch].Process(x));
                 x = (1.0f - hpfMix) * x + hpfMix * xHP;
 
-                // 2) RMS envelope → drive control (s in 0..1)
+                // --- 2) RMS envelope → drive control (s in 0..1) ---
                 float e = rms.Process(x);
-                float s = SmoothStep(kneeLo, kneeHi, e);
-                s = MathF.Pow(s, 1.6f);
 
-                // Drive scalar for the shaper
+                // SAT-lerped knees
+                float kneeLo = Lerp(0.200f, 0.10f, satMix);   // -14 dBFS → -20 dBFS
+                float kneeHi = Lerp(0.750f, 0.7079f, satMix);   //  -2.5 dBFS →  -3 dBFS
+
+                float s = SmoothStep(kneeLo, kneeHi, e);
+                s = MathF.Pow(s, 1.6f); // keep existing contour for the drive scalar
+
+                // Drive scalar for the shaper (SAT bumps ceiling)
+                float kMaxBoost = Lerp(1.70f, 2.00f, satMix);
                 float dynDrive = 1.0f + kMaxBoost * s;
 
-                // Dry/Wet blend (late onset)
-                const float wetFloor = 0.15f;
-                const float wetCeil = 0.30f;
-                const float wetPow = 1.6f;
+                // --- Dry/Wet blend (SAT raises ceiling & arrives sooner) ---
+                float wetFloor = Lerp(0.15f, 0.18f, satMix);
+                float wetCeil = Lerp(0.30f, 0.60f, satMix);   // set 0.50f if you prefer
+                float wetPow = Lerp(1.60f, 1.20f, satMix);
                 float wet = wetFloor + (wetCeil - wetFloor) * MathF.Pow(s, wetPow);
                 float dry = 1.0f - wet;
 
-                // Asymmetry & bias vs s
-                float aGate = SmoothStep(0.88f, 1.00f, s);
-                aGate = MathF.Pow(aGate, 1.3f);
+                // --- Asymmetry & bias vs s (SAT engages earlier & a bit stronger) ---
+                float aGateLo = Lerp(0.88f, 0.75f, satMix);
+                float aGateHi = Lerp(1.00f, 0.95f, satMix);
+                float aPow = Lerp(1.30f, 1.15f, satMix);
+                float asymMax = Lerp(0.15f, 0.18f, satMix);
+                float kBiasBase = Lerp(0.028f, 0.032f, satMix);
+                float kBiasHigh = Lerp(0.042f, 0.050f, satMix);
+
+                float aGate = SmoothStep(aGateLo, aGateHi, s);
+                aGate = MathF.Pow(aGate, aPow);
                 float asym = asymMax * aGate;
-                float kBiasEff = kBiasBase + (kBiasHigh - kBiasBase) * (asym / asymMax);
+                float kBiasEff = kBiasBase + (kBiasHigh - kBiasBase) * (asym / MathF.Max(1e-9f, asymMax));
 
                 // 3) Pre-emphasis into the shaper
                 float xPre = preLF.Process(x);
 
-                // 4) Nonlinearity (ADAA).
+                // 4) Nonlinearity (ADAA)
                 float ySh = Shaper.ProcessAsymTanhADAA(xPre + AntiDenorm, ref _adaaPrev[ch], dynDrive, asym, kBiasEff);
 
                 // 4b) Remove tiny DC introduced by asymmetry and AntiDenorm
@@ -315,10 +332,15 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
                 y = postHS2.Process(y);
                 y = lpHfTamer.Process(y);
 
-                outNow += outInc;    // final output trim
-                output[i] = y * outNow;
+                // Sat makeup (pre-output trim), click-free because colorMix is ramped
+                float satMakeupGain = Lerp(1.0f, DbToLin(3.0f), satMix);
+                y *= satMakeupGain;
 
+                // Output trim ramp
+                outNow += outInc;
+                output[i] = y * outNow;
             }
+
             lozBlend = MathF.Min(1f, MathF.Max(0f, lozBlend));
             lozPad = MathF.Min(1f, MathF.Max(0f, lozPad));
 
@@ -329,6 +351,7 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
             _lozPadZ[ch] = lozPad;
             _outputZ[ch] = outNow;
             _hpfMixZ[ch] = hpfMix;
+            _satMixZ[ch] = satMix;
         }
     }
 
@@ -351,6 +374,9 @@ public class AnalogGainProcessor : AudioProcessor<AnalogGainModel>
         // -400 dBFS threshold is safely inaudible, but avoids subnormals.
         return MathF.Abs(v) < 1e-20f ? 0f : v;
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static float Lerp(float a, float b, float t) => a + (b - a) * t;
 
     private struct RmsDetector
     {

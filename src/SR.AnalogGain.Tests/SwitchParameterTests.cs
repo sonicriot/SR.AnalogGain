@@ -133,10 +133,22 @@ namespace SR.AnalogGain.Tests
         }
 
         [Fact]
+        public void SatSwitch_ShouldHave_Reasonable_Title()
+        {
+            var model = new AnalogGainModel();
+            var idx = MustFindIndexByTitle(model, "SAT");
+            var p = model.GetLocalParameter(idx);
+
+            Assert.True(p.Title.Contains("SAT", StringComparison.OrdinalIgnoreCase) ||
+                        p.Title.Contains("Sat", StringComparison.OrdinalIgnoreCase),
+                        $"Unexpected SAT title: '{p.Title}'");
+        }
+
+        [Fact]
         public void Switches_ShouldHave_UniqueIds()
         {
             var model = new AnalogGainModel();
-            var keys = new[] { "LO-Z", "PAD", "PHASE", "HPF" };
+            var keys = new[] { "LO-Z", "PAD", "PHASE", "HPF", "SAT" };
 
             var ids = new List<int>();
             foreach (var key in keys)
@@ -154,7 +166,7 @@ namespace SR.AnalogGain.Tests
         {
             var model = new AnalogGainModel();
 
-            foreach (var key in new[] { "LO-Z", "PAD", "PHASE", "HPF" })
+            foreach (var key in new[] { "LO-Z", "PAD", "PHASE", "HPF", "SAT" })
             {
                 var idx = MustFindIndexByTitle(model, key);
                 var p = model.GetLocalParameter(idx);

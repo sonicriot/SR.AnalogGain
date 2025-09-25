@@ -27,7 +27,7 @@ namespace SR.AnalogGain.UI.Win32
 
         private readonly AnalogKnobWindow _leftKnob;
         private readonly AnalogKnobWindow _rightKnob;
-        private SwitchWindow _lozSwitch;
+        private SwitchWindow _satSwitch;
         private SwitchWindow _padSwitch;
         private SwitchWindow _phaseSwitch;
         private SwitchWindow _hpfSwitch;
@@ -55,8 +55,8 @@ namespace SR.AnalogGain.UI.Win32
             Func<float> getNormalizedRight,
             Action beginRight, Action<double> performRight, Action endRight,
             double minDbRight, double maxDbRight,
-            Func<bool> getLoZ, 
-            Action beginLoZ, Action<bool> performLoZ, Action endLoZ,
+            Func<bool> getSat, 
+            Action beginSat, Action<bool> performSat, Action endSat,
             Func<bool> getPad, 
             Action beginPad, Action<bool> performPad, Action endPad,
             Func<bool> getPhase,
@@ -81,14 +81,14 @@ namespace SR.AnalogGain.UI.Win32
                 topResName: "KnobTop512_gray.png",
                 pointerResName: "knob_pointer_sprite_300x300_x73_clockwise263_gray.png");
 
-            _lozSwitch = new SwitchWindow(
+            _satSwitch = new SwitchWindow(
                 resOff: "Switch-off.png",
                 resOn: "Switch-on.png",
-                label: "LO-Z",
-                get: getLoZ,
-                begin: beginLoZ,
-                perform: performLoZ,
-                end: endLoZ);
+                label: "SAT",
+                get: getSat,
+                begin: beginSat,
+                perform: performSat,
+                end: endSat);
 
             _padSwitch = new SwitchWindow( // NEW
                 resOff: "Switch-off.png",
@@ -137,7 +137,7 @@ namespace SR.AnalogGain.UI.Win32
 
             _leftKnob.Create(_hwnd, 0, 0, _width / 2, _height);
             _rightKnob.Create(_hwnd, _width / 2, 0, _width / 2, _height);
-            _lozSwitch.Create(_hwnd, 0, 0, 10, 10);
+            _satSwitch.Create(_hwnd, 0, 0, 10, 10);
             _padSwitch.Create(_hwnd, 0, 0, 10, 10);
             _phaseSwitch.Create(_hwnd, 0, 0, 10, 10);
             _hpfSwitch.Create(_hwnd, 0, 0, 10, 10);
@@ -153,7 +153,7 @@ namespace SR.AnalogGain.UI.Win32
         {
             _leftKnob.Destroy();
             _rightKnob.Destroy();
-            _lozSwitch.Destroy();
+            _satSwitch.Destroy();
             _padSwitch.Destroy();
             _phaseSwitch.Destroy();
             _hpfSwitch.Destroy();
@@ -192,7 +192,7 @@ namespace SR.AnalogGain.UI.Win32
 
         public void RefreshGainKnob() => _leftKnob?.Refresh();
         public void RefreshOutputKnob() => _rightKnob?.Refresh();
-        public void RefreshLoZ() => _lozSwitch?.Refresh();
+        public void RefreshSat() => _satSwitch?.Refresh();
         public void RefreshPad() => _padSwitch?.Refresh();
         public void RefreshPhase() => _phaseSwitch?.Refresh();
         public void RefreshHpf() => _hpfSwitch?.Refresh();
@@ -201,7 +201,7 @@ namespace SR.AnalogGain.UI.Win32
         {
             _leftKnob?.Refresh();
             _rightKnob?.Refresh();
-            _lozSwitch?.Refresh();
+            _satSwitch?.Refresh();
             _padSwitch?.Refresh();
             _phaseSwitch?.Refresh();
             _hpfSwitch?.Refresh();
@@ -259,13 +259,13 @@ namespace SR.AnalogGain.UI.Win32
             int swX = centerX + (centerW - swW) / 2;
 
             // Slot positions (for readability)
-            int slot0Y = groupTopY + 0 * slotPitch; // LO-Z
+            int slot0Y = groupTopY + 0 * slotPitch; // SAT
             int slot1Y = groupTopY + 1 * slotPitch; // PAD
             int slot2Y = groupTopY + 2 * slotPitch; // PHASE
             int slot3Y = groupTopY + 3 * slotPitch; // HPF
 
             // Place current switches in the TOP HALF
-            _lozSwitch?.SetBounds(swX, slot0Y, swW, swH);
+            _satSwitch?.SetBounds(swX, slot0Y, swW, swH);
             _padSwitch?.SetBounds(swX, slot1Y, swW, swH);
             _phaseSwitch?.SetBounds(swX, slot2Y, swW, swH);
             _hpfSwitch?.SetBounds(swX, slot3Y, swW, swH);
@@ -278,7 +278,7 @@ namespace SR.AnalogGain.UI.Win32
             // cada knob necesita: ref al bitmap de fondo y tamaño actual del contenedor
             _leftKnob?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
             _rightKnob?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
-            _lozSwitch?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
+            _satSwitch?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
             _padSwitch?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
             _phaseSwitch?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
             _hpfSwitch?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
