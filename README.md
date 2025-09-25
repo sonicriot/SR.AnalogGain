@@ -37,7 +37,7 @@ A simple **gain plugin** built with [NPlug](https://github.com/xoofx/NPlug) demo
 
 Grab the latest release of **SR.AnalogGain** here:
 
-[**Download v0.1.2 (Windows VST3)**](https://github.com/sonicriot/SR.AnalogGain/releases/download/v0.1.2/SR.AnalogGain.vst3)
+[**Download v0.1.3 (Windows VST3)**](https://github.com/sonicriot/SR.AnalogGain/releases/download/v0.1.3/SR.AnalogGain.vst3)
 
 After downloading, copy the `.vst3` file into your system’s VST3 folder:
 
