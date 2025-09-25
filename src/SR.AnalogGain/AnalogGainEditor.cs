@@ -36,7 +36,7 @@ namespace SR.AnalogGain
             _controller = controller;
             _model = model;
 
-            // Match FixedDualKnobWindow signature (left = GAIN, right = OUTPUT, LO-Z)
+            // Match FixedDualKnobWindow signature (left = GAIN, right = OUTPUT, SAT, PAD, PHASE, HPS)
             _window = new UI.Win32.FixedDualKnobWindow(
                 // Left knob (GAIN)
                 getNormalizedLeft: () => (float)_model.Gain.NormalizedValue,
@@ -52,11 +52,11 @@ namespace SR.AnalogGain
                 endRight: () => _controller.EndEditParameter(),
                 minDbRight: -24.0, maxDbRight: +12.0,
 
-                // LO-Z switch
-                getLoZ: () => _model.LoZ.Value,
-                beginLoZ: () => _controller.BeginEditParameter(_model.LoZ),
-                performLoZ: v => _model.LoZ.Value = v,
-                endLoZ: () => _controller.EndEditParameter(),
+                // SAT switch
+                getSat: () => _model.Sat.Value,
+                beginSat: () => _controller.BeginEditParameter(_model.Sat),
+                performSat: v => _model.Sat.Value = v,
+                endSat: () => _controller.EndEditParameter(),
 
                 // PAD switch (new)
                 getPad: () => _model.Pad.Value,
@@ -202,7 +202,7 @@ namespace SR.AnalogGain
         {
             if (parameter == _model.Gain) { _window.RefreshGainKnob(); return; }
             if (parameter == _model.Output) { _window.RefreshOutputKnob(); return; }
-            if (parameter == _model.LoZ) { _window.RefreshLoZ(); return; }
+            if (parameter == _model.Sat) { _window.RefreshSat(); return; }
             if (parameter == _model.Pad) { _window.RefreshPad(); return; }
             if (parameter == _model.Phase) { _window.RefreshPhase(); return; }
             if (parameter == _model.Hpf) { _window.RefreshHpf(); return; }

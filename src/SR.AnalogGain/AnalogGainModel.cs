@@ -1,6 +1,5 @@
 namespace SR.AnalogGain;
 using NPlug;
-using System.Numerics;
 
 public class AnalogGainModel : AudioProcessorModel
 {
@@ -27,6 +26,7 @@ public class AnalogGainModel : AudioProcessorModel
         Pad = AddParameter(new AudioBoolParameter("PAD", id: 40));
         Phase = AddParameter(new AudioBoolParameter("PHASE", id: 50));
         Hpf = AddParameter(new AudioBoolParameter("HPF", id: 60));
+        Sat = AddParameter(new AudioBoolParameter("SAT", id: 70));
     }
 
     public AudioParameter Gain { get; }
@@ -35,4 +35,5 @@ public class AnalogGainModel : AudioProcessorModel
     public AudioBoolParameter Pad { get; }
     public AudioBoolParameter Phase { get; }
     public AudioBoolParameter Hpf { get; }
+    public AudioBoolParameter Sat { get; }
 }

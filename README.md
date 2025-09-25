@@ -13,7 +13,7 @@ A simple **gain plugin** built with [NPlug](https://github.com/xoofx/NPlug) demo
 - **Gain Control**: Adjustable from deep attenuation to boost.
 - **Output Level**: Independent knob to control final volume.
 - **Switches** (analog-style toggles):
-  - **LO-Z**: Low-impedance input coloration (pad + HF tilt).
+  - **SAT**: Engages harmonic enhancement (earlier saturation knee, higher wet blend, gentle asymmetry/bias) with click-free switching and a subtle **+3 dB** makeup.
   - **PAD**: Fixed –20 dB attenuation before the gain stage.
   - **PHASE**: Polarity inversion with click-free ramping.
   - **HPF**: High-pass filter around 80 Hz, 18 dB/oct slope.
