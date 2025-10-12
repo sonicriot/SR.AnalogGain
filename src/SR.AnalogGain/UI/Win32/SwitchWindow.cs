@@ -1,4 +1,5 @@
-﻿using System;
+﻿#if WINDOWS
+using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
@@ -31,6 +32,8 @@ namespace SR.AnalogGain.UI.Win32
         private Bitmap? _backBuffer; int _bufW, _bufH;
 
         private readonly string _resOff, _resOn, _label;
+
+        // Immutable originals (never assign resized copies back to these!)
         private Bitmap? _bmpOff, _bmpOn;
 
         // Param binding
@@ -39,7 +42,7 @@ namespace SR.AnalogGain.UI.Win32
         private readonly Action<bool> _perform;
         private readonly Action _end;
 
-        // Container background slice (like the knobs)
+        // Container bg reference (not used in sizing/painting; kept for parity)
         private Bitmap? _containerBg;
         private int _containerW, _containerH;
 
@@ -70,12 +73,15 @@ namespace SR.AnalogGain.UI.Win32
         {
             _parent = parent; _x = x; _y = y; _w = w; _h = h;
 
-            _hwnd = CreateWindowEx(WS_EX_TRANSPARENT, WC_STATIC, null, WS_CHILD | WS_VISIBLE | SS_NOTIFY, _x, _y, _w, _h, _parent, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            _hwnd = CreateWindowEx(WS_EX_TRANSPARENT, WC_STATIC, null,
+                WS_CHILD | WS_VISIBLE | SS_NOTIFY,
+                _x, _y, _w, _h, _parent, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 
             if (_hwnd == IntPtr.Zero) return false;
 
             _origWndProc = SetWindowLongPtr(_hwnd, -4 /*GWL_WNDPROC*/, Marshal.GetFunctionPointerForDelegate(_proc));
 
+            // keep above bg
             SetWindowPos(_hwnd, new IntPtr(-1) /*HWND_TOP*/, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010); // NOSIZE|NOMOVE|NOACTIVATE
 
             return true;
@@ -98,11 +104,11 @@ namespace SR.AnalogGain.UI.Win32
 
         public void SetBounds(int x, int y, int w, int h)
         {
-            _x = x; _y = y; _w = w; _h = h;
+            _x = x; _y = y; _w = Math.Max(1, w); _h = Math.Max(1, h);
             if (_hwnd != IntPtr.Zero)
             {
                 MoveWindow(_hwnd, _x, _y, _w, _h, true);
-                InvalidateRect(_hwnd, IntPtr.Zero, false);
+                InvalidateRect(_hwnd, IntPtr.Zero, false); // repaint only; no layout inside
             }
         }
 
@@ -121,49 +127,56 @@ namespace SR.AnalogGain.UI.Win32
             }
         }
 
-        private float UiScale()
-        {
-            // derive scale from fixed logical size 1024x512 (same idea as editor)
-            // we use width scale; aspect is fixed by the parent anyway
-            return (_containerW > 0) ? Math.Max(0.1f, (float)_containerW / 1024f) : 1.0f;
-        }
-
+        // --- Rendering uses only the control's own client size (_w, _h) ---
         private void Render(Graphics g)
         {
             bool on = _get();
             EnsureAssets();
+
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.CompositingMode = CompositingMode.SourceOver;
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
-            // no background paint here (transparent control)
+            // transparent background (parent paints bg)
+            // g.Clear(Color.Transparent); // not needed for PArgb backbuffer
 
-            float ui = UiScale();
             var bmp = on ? _bmpOn : _bmpOff;
-            int sw = bmp?.Width ?? 115, sh = bmp?.Height ?? 60;
-            float ar = (float)sw / Math.Max(1, sh);
+            int sw = bmp?.Width ?? 115;
+            int sh = bmp?.Height ?? 60;
 
-            // Fit image inside our rect, keep aspect
-            int dstH = Math.Min(_h, (int)Math.Round(sh * ui));
-            int dstW = Math.Min(_w, (int)Math.Round(dstH * ar));
-            int imgX = (_w - dstW) / 2;
-            int imgY = (_h - dstH) / 2;
+            // Fit image inside our rect purely by aspect (no external scale)
+            double ar = (double)sw / Math.Max(1, sh);
+            int availW = Math.Max(1, _w);
+            int availH = Math.Max(1, _h);
 
-            // draw switch image
-            if (bmp != null) g.DrawImage(bmp, new Rectangle(imgX, imgY, dstW, dstH));
+            int dstW = availW;
+            int dstH = (int)Math.Round(dstW / ar);
+            if (dstH > availH)
+            {
+                dstH = availH;
+                dstW = (int)Math.Round(dstH * ar);
+            }
 
-            // label overlay (centered on the image)
-            using var f = new Font(FontFamily.GenericSansSerif, Math.Max(10f, dstH * 0.26f), FontStyle.Bold, GraphicsUnit.Pixel);
-            //using var shadow = new SolidBrush(Color.FromArgb(150, 0, 0, 0));
+            int imgX = (availW - dstW) / 2;
+            int imgY = (availH - dstH) / 2;
+
+            // draw switch image from original
+            if (bmp != null)
+                g.DrawImage(bmp, new Rectangle(imgX, imgY, dstW, dstH));
+
+            // label overlay (centered on the image). Size relative to drawn image height.
+            float fontPx = Math.Max(10f, dstH * 0.26f);
+            using var f = new Font(FontFamily.GenericSansSerif, fontPx, FontStyle.Bold, GraphicsUnit.Pixel);
             using var black = new SolidBrush(Color.Black);
 
             var size = g.MeasureString(_label, f);
             float lblX = imgX + (dstW - size.Width) * 0.5f;
             float lblY = imgY + (dstH - size.Height) * 0.5f;
 
-            // offset when ON: (-2, +2) scaled
-            if (on) { lblX += -2f * ui; lblY += +2f * ui; }
+            // small pressed/ON offset
+            if (on) { lblX -= 2f; lblY += 2f; }
 
-            //g.DrawString(_label, f, shadow, lblX + 1, lblY + 1);
             g.DrawString(_label, f, black, lblX, lblY);
         }
 
@@ -171,7 +184,8 @@ namespace SR.AnalogGain.UI.Win32
         {
             switch (msg)
             {
-                case WM_ERASEBKGND: return (IntPtr)1;
+                case WM_ERASEBKGND:
+                    return (IntPtr)1;
 
                 case WM_SIZE:
                     {
@@ -185,23 +199,18 @@ namespace SR.AnalogGain.UI.Win32
                 case WM_LBUTTONDOWN:
                     {
                         _pressed = true;
-                        _editing = true;              // start a parameter edit
+                        _editing = true;
                         SetCapture(_hwnd);
                         _begin();
                         return IntPtr.Zero;
                     }
 
-
-                case WM_LBUTTONDBLCLK:            // treat as another "down" for the 2nd click
+                case WM_LBUTTONDBLCLK:
                     {
                         _pressed = true;
-                        if (!_editing)
-                        {              // be robust if we re-enter
-                            _editing = true;
-                            _begin();
-                        }
+                        if (!_editing) { _editing = true; _begin(); }
                         SetCapture(_hwnd);
-                        return IntPtr.Zero;           // handled; don't let default proc meddle
+                        return IntPtr.Zero;
                     }
 
                 case WM_LBUTTONUP:
@@ -220,17 +229,13 @@ namespace SR.AnalogGain.UI.Win32
                             InvalidateRect(_hwnd, IntPtr.Zero, false);
                         }
 
-                        if (_editing)
-                        {               // only end if we began
-                            _editing = false;
-                            _end();
-                        }
+                        if (_editing) { _editing = false; _end(); }
                         return IntPtr.Zero;
                     }
 
                 case WM_MOUSELEAVE:
                     _trackingLeave = false;
-                    _pressed = false; // cancel press if pointer left
+                    _pressed = false;
                     return IntPtr.Zero;
 
                 case WM_PAINT:
@@ -242,8 +247,17 @@ namespace SR.AnalogGain.UI.Win32
                             EnsureBackBuffer(_w, _h);
                             using (var gb = Graphics.FromImage(_backBuffer!))
                             {
+                                gb.CompositingMode = CompositingMode.SourceOver;
+                                gb.SmoothingMode = SmoothingMode.AntiAlias;
+                                gb.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                                gb.PixelOffsetMode = PixelOffsetMode.HighQuality;
+
+                                // Clear the backbuffer alpha; we want a clean redraw each time
+                                gb.Clear(Color.Transparent);
+
                                 Render(gb);
                             }
+
                             using var g = Graphics.FromHdc(hdc);
                             g.CompositingMode = CompositingMode.SourceOver;
                             g.DrawImageUnscaled(_backBuffer!, 0, 0);
@@ -261,8 +275,6 @@ namespace SR.AnalogGain.UI.Win32
         private void TrackMouseLeave()
         {
             if (_trackingLeave || _hwnd == IntPtr.Zero) return;
-            // we don’t need full TRACKMOUSEEVENT P/Invoke; LBUTTONUP logic already cancels,
-            // but it’s nice to clear pressed if the pointer leaves.
             _trackingLeave = true;
         }
 
@@ -280,7 +292,6 @@ namespace SR.AnalogGain.UI.Win32
         [DllImport("user32.dll")] private static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
         [DllImport("user32.dll")] private static extern IntPtr BeginPaint(IntPtr hWnd, out PAINTSTRUCT lpPaint);
         [DllImport("user32.dll")] private static extern bool EndPaint(IntPtr hWnd, ref PAINTSTRUCT lpPaint);
-        [DllImport("user32.dll")] private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
         [DllImport("user32.dll")] private static extern bool SetCapture(IntPtr hWnd);
         [DllImport("user32.dll")] private static extern bool ReleaseCapture();
         [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
@@ -301,3 +312,4 @@ namespace SR.AnalogGain.UI.Win32
         private struct RECT { public int left, top, right, bottom; }
     }
 }
+#endif

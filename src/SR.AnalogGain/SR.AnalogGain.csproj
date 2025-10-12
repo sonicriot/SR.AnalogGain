@@ -6,6 +6,15 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(RuntimeIdentifier)'=='win-x64'">
+    <DefineConstants>WINDOWS;$(DefineConstants)</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(RuntimeIdentifier)'=='osx-arm64'">
+    <DefineConstants>MACOS;$(DefineConstants)</DefineConstants>
+  </PropertyGroup>
+
+
   <ItemGroup>
     <None Remove="Assets\Bg1024x512.png" />
     <None Remove="Assets\KnobFace512.png" />
@@ -42,6 +51,10 @@
   <PropertyGroup>
     <CopyVST3OnPublish>true</CopyVST3OnPublish>
     <VST3Dest>$(CommonProgramFiles)\VST3</VST3Dest>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
   </PropertyGroup>
 
   <Target Name="CopyVST3OnPublish" AfterTargets="Publish" Condition="'$(CopyVST3OnPublish)'=='true'">

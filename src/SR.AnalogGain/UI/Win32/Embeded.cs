@@ -1,3 +1,4 @@
+#if WINDOWS
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -23,3 +24,4 @@ static class Embedded
         return new Bitmap(ms);
     }
 }
+#endif

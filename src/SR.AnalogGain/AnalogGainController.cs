@@ -1,51 +1,54 @@
-using System.Threading.Tasks;
+using System;
 using NPlug;
 using NPlug.IO;
-namespace SR.AnalogGain;
+using SR.AnalogGain.UI;
 
-public class AnalogGainController : AudioController<AnalogGainModel>
+namespace SR.AnalogGain
 {
-    public static readonly Guid ClassId = new("2418b185-051c-4d80-b17b-6ec45b953f76");
-
-    private AnalogGainEditor? _editor;
-
-    // VST3 path: controller creates the "editor" view
-    protected override IAudioPluginView? CreateView()
+    public sealed partial class AnalogGainController : AudioController<AnalogGainModel>
     {
-        _editor = new AnalogGainEditor(this, Model);
-        return _editor;
-    }
+        public static readonly Guid ClassId = new("2418b185-051c-4d80-b17b-6ec45b953f76");
 
-    // Called when parameters are changed (both from UI and externally like host preset loading)
-    protected override void OnParameterValueChanged(AudioParameter parameter, bool parameterValueChangedFromHost)
-    {
-        // Call base implementation first to handle the parameter change
-        base.OnParameterValueChanged(parameter, parameterValueChangedFromHost);
+        private IAnalogGainEditorView? _editor;
+        private readonly IEditorFactory _editorFactory;
 
-        _editor?.RefreshParameter(parameter);
-    }
+        public AnalogGainController()
+        {
+            _editorFactory = CreateEditorFactory(); // platform-specific via partial
+        }
 
-    // Called when the host restores the component state (preset loading)
-    protected override void RestoreComponentState(PortableBinaryReader reader)
-    {
-        base.RestoreComponentState(reader);
-        
-        // Force UI refresh after state restoration
-        _editor?.RefreshUI();
-    }
+        // VST3 path: controller creates the "editor" view
+        protected override IAudioPluginView? CreateView()
+        {
+            _editor = _editorFactory.CreateEditor(this, Model);
+            return _editor;
+        }
 
-    // Called when the host restores the controller state
-    protected override void RestoreState(PortableBinaryReader reader)
-    {
-        base.RestoreState(reader);
-        
-        // Force UI refresh after state restoration
-        _editor?.RefreshUI();
-    }
+        // Called when parameters are changed (UI or host)
+        protected override void OnParameterValueChanged(AudioParameter parameter, bool parameterValueChangedFromHost)
+        {
+            base.OnParameterValueChanged(parameter, parameterValueChangedFromHost);
+            _editor?.RefreshParameter(parameter);
+        }
 
-    // Clean up editor reference when view is removed
-    public void OnEditorClosed()
-    {
-        _editor = null;
+        // Called when the host restores the component state (preset loading)
+        protected override void RestoreComponentState(PortableBinaryReader reader)
+        {
+            base.RestoreComponentState(reader);
+            _editor?.RefreshUI();
+        }
+
+        // Called when the host restores the controller state
+        protected override void RestoreState(PortableBinaryReader reader)
+        {
+            base.RestoreState(reader);
+            _editor?.RefreshUI();
+        }
+
+        // Clean up editor reference when view is removed
+        public void OnEditorClosed() => _editor = null;
+
+        // IMPORTANT: non-void partial must be explicit about accessibility
+        private static partial IEditorFactory CreateEditorFactory();
     }
 }

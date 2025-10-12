@@ -1,4 +1,4 @@
-using System;
+#if WINDOWS
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
@@ -24,44 +24,45 @@ namespace SR.AnalogGain.UI.Win32
 
         private int _width = 1024;
         private int _height = 512;
+        private int _lastWidth = -1;
+        private int _lastHeight = -1;
 
         private readonly AnalogKnobWindow _leftKnob;
         private readonly AnalogKnobWindow _rightKnob;
-        private SwitchWindow _satSwitch;
-        private SwitchWindow _padSwitch;
-        private SwitchWindow _phaseSwitch;
-        private SwitchWindow _hpfSwitch;
+        private readonly SwitchWindow _satSwitch;
+        private readonly SwitchWindow _padSwitch;
+        private readonly SwitchWindow _phaseSwitch;
+        private readonly SwitchWindow _hpfSwitch;
 
         private Bitmap? _bg1024x512;
 
         private const int OuterPad = 18;
         private const int MiddleGap = 24;
-        private const int InnerPad = 24;
 
-        private const int SwitchSlots = 4;         // reserve 4 vertical slots
-        private const int SwitchHGapPx = 12;       // extra horizontal padding around switch
-        private const int BaseLogicalW = 1024;     // used for scale derivation
-        private const int SwitchNativeW = 115;   // px of the bitmap
-        private const int SwitchNativeH = 60;    // px of the bitmap
-        private const int SwitchGapPx = 10;    // logical gap between switches (scaled)
-
+        // Stable scale & switches geometry
+        private const int SwitchSlots = 4;      // reserve 4 vertical slots
+        private const int SwitchHGapPx = 12;    // horizontal padding around switch (inside center column)
+        private const int BaseLogicalW = 1024;  // reference width for scaling
+        private const int SwitchNativeW = 115;  // png width in px
+        private const int SwitchNativeH = 60;   // png height in px
+        private const int SwitchGapPx = 10;     // vertical gap between switches (logical, scaled)
 
         private readonly WndProc _wndProcDelegate;
 
         public FixedDualKnobWindow(
-            Func<float> getNormalizedLeft, 
+            Func<float> getNormalizedLeft,
             Action beginLeft, Action<double> performLeft, Action endLeft,
             double minDbLeft, double maxDbLeft,
             Func<float> getNormalizedRight,
             Action beginRight, Action<double> performRight, Action endRight,
             double minDbRight, double maxDbRight,
-            Func<bool> getSat, 
+            Func<bool> getSat,
             Action beginSat, Action<bool> performSat, Action endSat,
-            Func<bool> getPad, 
+            Func<bool> getPad,
             Action beginPad, Action<bool> performPad, Action endPad,
             Func<bool> getPhase,
             Action beginPhase, Action<bool> performPhase, Action endPhase,
-            Func<bool> getHpf, 
+            Func<bool> getHpf,
             Action beginHpf, Action<bool> performHpf, Action endHpf
         )
         {
@@ -90,13 +91,13 @@ namespace SR.AnalogGain.UI.Win32
                 perform: performSat,
                 end: endSat);
 
-            _padSwitch = new SwitchWindow( // NEW
+            _padSwitch = new SwitchWindow(
                 resOff: "Switch-off.png",
                 resOn: "Switch-on.png",
                 label: "PAD",
-                get: getPad, 
-                begin: beginPad, 
-                perform: performPad, 
+                get: getPad,
+                begin: beginPad,
+                perform: performPad,
                 end: endPad);
 
             _phaseSwitch = new SwitchWindow(
@@ -142,10 +143,11 @@ namespace SR.AnalogGain.UI.Win32
             _phaseSwitch.Create(_hwnd, 0, 0, 10, 10);
             _hpfSwitch.Create(_hwnd, 0, 0, 10, 10);
 
-            // dar a los knobs referencia del fondo y tamaño del contenedor
             PropagateBackgroundRef();
 
-            LayoutChildren();
+            _lastWidth = _width;
+            _lastHeight = _height;
+            LayoutChildren(); // initial layout
             return true;
         }
 
@@ -176,8 +178,17 @@ namespace SR.AnalogGain.UI.Win32
 
         public void SetBounds(int x, int y, int width, int height)
         {
+            // Guard: only relayout if size changed
+            if (width == _lastWidth && height == _lastHeight)
+            {
+                if (_hwnd != IntPtr.Zero) InvalidateRect(_hwnd, IntPtr.Zero, false);
+                return;
+            }
+
             _width = width;
             _height = height;
+            _lastWidth = width;
+            _lastHeight = height;
 
             if (_hwnd != IntPtr.Zero)
             {
@@ -216,66 +227,60 @@ namespace SR.AnalogGain.UI.Win32
         {
             if (_hwnd == IntPtr.Zero) return;
 
-            // whatever your original margins were
+            // Inner area excluding outer padding
             int innerW = Math.Max(1, _width - 2 * OuterPad);
             int innerH = Math.Max(1, _height - 2 * OuterPad);
 
-            // Keep knob sizing exactly as before — DO NOT subtract center column width.
-            // If your original code computed 'side' from innerH (square knobs), keep that:
+            // Knobs are square; side fits two knobs plus middle gap within inner width
             int side = Math.Min(innerH, (innerW - 2 * MiddleGap) / 2);
 
-            // Left knob
+            // Left & Right knob positions
             int leftX = OuterPad;
             int leftY = OuterPad;
             _leftKnob.SetBounds(leftX, leftY, side, side);
 
-            // Right knob
             int rightX = _width - OuterPad - side;
             int rightY = OuterPad;
             _rightKnob.SetBounds(rightX, rightY, side, side);
 
-            // --- Center column overlay (switch group) ---
+            // ---- Center column (switch group) ----
+            // Stable UI scale derived only from container width (prevents ratchet)
             float ui = Math.Max(0.1f, (float)_width / BaseLogicalW);
 
-            // Column width: native switch width + a bit of left/right padding
+            // Center column width: base switch width + horizontal padding (independent from previous sizes)
             int centerW = (int)Math.Round((SwitchNativeW + 2 * SwitchHGapPx) * ui);
             int centerX = (_width - centerW) / 2;
             int centerY = leftY;
             int centerH = side;
 
-            // Switch size at current scale
+            // Switch size at current scale (NO Min/Clamp with centerW that could feed back)
+            int swW = (int)Math.Round(SwitchNativeW * ui);
             int swH = (int)Math.Round(SwitchNativeH * ui);
-            int swW = Math.Min(centerW, (int)Math.Round(SwitchNativeW * ui));
             int gap = (int)Math.Round(SwitchGapPx * ui);
 
-            // Reserve **4 slots** (future-proof). We only place the first two now.
-            int totalSlots = SwitchSlots;                 // 4
-            int slotPitch = swH + gap;                   // height each "slot" consumes
-            int groupH = swH * totalSlots + gap * (totalSlots - 1);
+            int slotPitch = swH + gap;
+            int groupH = swH * SwitchSlots + gap * (SwitchSlots - 1);
 
-            // Center the 4-slot group vertically inside the column.
-            // This makes slots 0 & 1 live ABOVE the vertical center line, as requested.
+            // Vertically center a 4-slot group within the column (future-proof)
             int groupTopY = centerY + Math.Max(0, (centerH - groupH) / 2);
+
+            // Center each switch horizontally inside the center column
             int swX = centerX + (centerW - swW) / 2;
 
-            // Slot positions (for readability)
+            // Slots (top to bottom)
             int slot0Y = groupTopY + 0 * slotPitch; // SAT
             int slot1Y = groupTopY + 1 * slotPitch; // PAD
             int slot2Y = groupTopY + 2 * slotPitch; // PHASE
             int slot3Y = groupTopY + 3 * slotPitch; // HPF
 
-            // Place current switches in the TOP HALF
-            _satSwitch?.SetBounds(swX, slot0Y, swW, swH);
-            _padSwitch?.SetBounds(swX, slot1Y, swW, swH);
-            _phaseSwitch?.SetBounds(swX, slot2Y, swW, swH);
-            _hpfSwitch?.SetBounds(swX, slot3Y, swW, swH);
+            _satSwitch.SetBounds(swX, slot0Y, swW, swH);
+            _padSwitch.SetBounds(swX, slot1Y, swW, swH);
+            _phaseSwitch.SetBounds(swX, slot2Y, swW, swH);
+            _hpfSwitch.SetBounds(swX, slot3Y, swW, swH);
         }
-
-
 
         private void PropagateBackgroundRef()
         {
-            // cada knob necesita: ref al bitmap de fondo y tamaño actual del contenedor
             _leftKnob?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
             _rightKnob?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
             _satSwitch?.SetContainerBackgroundReference(_bg1024x512, _width, _height);
@@ -292,17 +297,21 @@ namespace SR.AnalogGain.UI.Win32
                     return (IntPtr)1;
 
                 case WM_SIZE:
-                    int w = (int)(lParam.ToInt64() & 0xFFFF);
-                    int h = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
-                    if (w > 0 && h > 0)
                     {
-                        _width = w;
-                        _height = h;
-                        LayoutChildren();
-                        PropagateBackgroundRef();
-                        InvalidateRect(_hwnd, IntPtr.Zero, false);
+                        int w = (int)(lParam.ToInt64() & 0xFFFF);
+                        int h = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
+                        if (w > 0 && h > 0 && (w != _lastWidth || h != _lastHeight))
+                        {
+                            _width = w;
+                            _height = h;
+                            _lastWidth = w;
+                            _lastHeight = h;
+                            LayoutChildren();
+                            PropagateBackgroundRef();
+                            InvalidateRect(_hwnd, IntPtr.Zero, false);
+                        }
+                        return (IntPtr)0;
                     }
-                    break;
 
                 case WM_PAINT:
                     {
@@ -366,3 +375,4 @@ namespace SR.AnalogGain.UI.Win32
         private struct RECT { public int left, top, right, bottom; }
     }
 }
+#endif

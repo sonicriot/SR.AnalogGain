@@ -1,3 +1,4 @@
+#if WINDOWS
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -531,3 +532,4 @@ namespace SR.AnalogGain.UI.Win32
         private struct RECT { public int left, top, right, bottom; }
     }
 }
+#endif

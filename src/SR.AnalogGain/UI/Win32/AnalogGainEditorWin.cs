@@ -1,14 +1,15 @@
-using System;
-using System.Runtime.InteropServices;
+﻿#if WINDOWS
 using NPlug;
+using System.Runtime.InteropServices;
 
-namespace SR.AnalogGain
+
+namespace SR.AnalogGain.UI.Win32
 {
     /// <summary>
     /// Fixed-aspect editor that hosts a Win32 dual-knob container (GAIN + OUTPUT).
     /// DPI- and host-scale aware, with an extra user scale to globally shrink/enlarge the UI.
     /// </summary>
-    public sealed class AnalogGainEditor : IAudioPluginView
+    public sealed class AnalogGainEditorWin : IAnalogGainEditorView
     {
         // ---- Dependencies ---------------------------------------------------
         private readonly AnalogGainController _controller;
@@ -31,7 +32,7 @@ namespace SR.AnalogGain
         private const float MaxScale = 4.0f;
 
         // ---- Ctor -----------------------------------------------------------
-        public AnalogGainEditor(AnalogGainController controller, AnalogGainModel model)
+        public AnalogGainEditorWin(AnalogGainController controller, AnalogGainModel model)
         {
             _controller = controller;
             _model = model;
@@ -93,13 +94,13 @@ namespace SR.AnalogGain
 
             // Ask host to resize and layout the child window
             ApplyScaleAndResize();
-            
+
             // Refresh UI to ensure knobs reflect current parameter values
             // (important when editor is reopened after host preset changes)
             _window.RefreshUI();
         }
 
-        public void Removed() 
+        public void Removed()
         {
             _window.Destroy();
             // Notify controller that editor is closed
@@ -170,7 +171,7 @@ namespace SR.AnalogGain
         }
 
         // ---- Public Methods -------------------------------------------------
-        
+
         /// <summary>
         /// Refreshes the UI to reflect current parameter values.
         /// Called when parameters are changed externally (e.g., host preset loading, automation).
@@ -189,7 +190,7 @@ namespace SR.AnalogGain
             // Force a complete UI refresh multiple times to ensure it takes effect
             _window.RefreshUI();
             _window.RefreshUI(); // Call twice to ensure it works
-            
+
             // Also trigger a window repaint
             if (_window != null)
             {
@@ -301,3 +302,4 @@ namespace SR.AnalogGain
         [DllImport("kernel32.dll")] private static extern nint GetCurrentProcess();
     }
 }
+#endif
