@@ -1,7 +1,7 @@
 ﻿#if WINDOWS
 using NPlug;
 using System.Runtime.InteropServices;
-
+using SR.AnalogGain.UI; // for IAnalogGainEditorView
 
 namespace SR.AnalogGain.UI.Win32
 {
@@ -14,7 +14,7 @@ namespace SR.AnalogGain.UI.Win32
         // ---- Dependencies ---------------------------------------------------
         private readonly AnalogGainController _controller;
         private readonly AnalogGainModel _model;
-        private readonly UI.Win32.FixedDualKnobWindow _window;
+        private readonly FixedDualKnobWindow _window;
 
         // ---- Host frame / scaling ------------------------------------------
         private IAudioPluginFrame? _frame;
@@ -31,14 +31,17 @@ namespace SR.AnalogGain.UI.Win32
         private const float MinScale = 0.5f;
         private const float MaxScale = 4.0f;
 
+        // Track last applied size to avoid redundant relayouts (prevents shrink feedback)
+        private int _lastW = -1, _lastH = -1;
+
         // ---- Ctor -----------------------------------------------------------
         public AnalogGainEditorWin(AnalogGainController controller, AnalogGainModel model)
         {
             _controller = controller;
             _model = model;
 
-            // Match FixedDualKnobWindow signature (left = GAIN, right = OUTPUT, SAT, PAD, PHASE, HPS)
-            _window = new UI.Win32.FixedDualKnobWindow(
+            // Match FixedDualKnobWindow signature (left = GAIN, right = OUTPUT, SAT, PAD, PHASE, HPF)
+            _window = new FixedDualKnobWindow(
                 // Left knob (GAIN)
                 getNormalizedLeft: () => (float)_model.Gain.NormalizedValue,
                 beginLeft: () => _controller.BeginEditParameter(_model.Gain),
@@ -59,19 +62,19 @@ namespace SR.AnalogGain.UI.Win32
                 performSat: v => _model.Sat.Value = v,
                 endSat: () => _controller.EndEditParameter(),
 
-                // PAD switch (new)
+                // PAD switch
                 getPad: () => _model.Pad.Value,
                 beginPad: () => _controller.BeginEditParameter(_model.Pad),
                 performPad: v => _model.Pad.Value = v,
                 endPad: () => _controller.EndEditParameter(),
 
-                // PHASE switch (new)
+                // PHASE switch
                 getPhase: () => _model.Phase.Value,
                 beginPhase: () => _controller.BeginEditParameter(_model.Phase),
                 performPhase: v => _model.Phase.Value = v,
                 endPhase: () => _controller.EndEditParameter(),
 
-                // HPF switch (new)
+                // HPF switch
                 getHpf: () => _model.Hpf.Value,
                 beginHpf: () => _controller.BeginEditParameter(_model.Hpf),
                 performHpf: v => _model.Hpf.Value = v,
@@ -92,18 +95,16 @@ namespace SR.AnalogGain.UI.Win32
             // Determine initial scale (host DPI/content scale) and apply user multiplier
             _scale = DetermineInitialScale(parent) * UserUiScale;
 
-            // Ask host to resize and layout the child window
+            // Ask host to resize and layout the child window (guarded)
             ApplyScaleAndResize();
 
-            // Refresh UI to ensure knobs reflect current parameter values
-            // (important when editor is reopened after host preset changes)
+            // Ensure current parameter values are reflected
             _window.RefreshUI();
         }
 
         public void Removed()
         {
             _window.Destroy();
-            // Notify controller that editor is closed
             if (_controller is AnalogGainController controller)
                 controller.OnEditorClosed();
         }
@@ -133,6 +134,7 @@ namespace SR.AnalogGain.UI.Win32
             int w = Math.Max(1, newSize.Right - newSize.Left);
             int h = Math.Max(1, newSize.Bottom - newSize.Top);
             _window.SetBounds(0, 0, w, h);
+            _lastW = w; _lastH = h; // keep in sync so ApplyScaleAndResize doesn't immediately relayout
         }
 
         public void OnFocus(bool state) { /* no-op */ }
@@ -172,31 +174,16 @@ namespace SR.AnalogGain.UI.Win32
 
         // ---- Public Methods -------------------------------------------------
 
-        /// <summary>
-        /// Refreshes the UI to reflect current parameter values.
-        /// Called when parameters are changed externally (e.g., host preset loading, automation).
-        /// </summary>
         public void RefreshUI()
         {
+            // Repaint only; do not trigger relayout here
             _window.RefreshUI();
         }
 
-        /// <summary>
-        /// Forces an immediate UI update by checking current parameter values.
-        /// This is a more aggressive refresh that ensures the UI matches the model.
-        /// </summary>
         public void ForceUIUpdate()
         {
-            // Force a complete UI refresh multiple times to ensure it takes effect
+            // Aggressive repaint, but avoid size/layout churn
             _window.RefreshUI();
-            _window.RefreshUI(); // Call twice to ensure it works
-
-            // Also trigger a window repaint
-            if (_window != null)
-            {
-                // This will force the knobs to re-read their values and redraw
-                ApplyScaleAndResize();
-            }
         }
 
         public void RefreshParameter(AudioParameter parameter)
@@ -208,7 +195,6 @@ namespace SR.AnalogGain.UI.Win32
             if (parameter == _model.Phase) { _window.RefreshPhase(); return; }
             if (parameter == _model.Hpf) { _window.RefreshHpf(); return; }
         }
-
 
         // ---- Helpers --------------------------------------------------------
         private void AdjustGainDb(double deltaDb)
@@ -224,7 +210,7 @@ namespace SR.AnalogGain.UI.Win32
             p.NormalizedValue = newNorm;
             _controller.EndEditParameter();
 
-            _window.RefreshUI();
+            _window.RefreshUI(); // repaint only
         }
 
         private (int w, int h) GetScaledSize()
@@ -237,13 +223,17 @@ namespace SR.AnalogGain.UI.Win32
         private void ApplyScaleAndResize()
         {
             var (w, h) = GetScaledSize();
-            var rect = new ViewRectangle(0, 0, w, h);
 
-            // Ask host to resize the editor if possible
-            _frame?.ResizeView(this, rect);
+            // Only instruct host / child to resize when the size actually changed
+            if (w != _lastW || h != _lastH)
+            {
+                var rect = new ViewRectangle(0, 0, w, h);
+                _frame?.ResizeView(this, rect);     // let host size our view
+                _window.SetBounds(0, 0, w, h);      // lays out children once
+                _lastW = w; _lastH = h;
+            }
 
-            // Ensure our child window matches whatever the host will use
-            _window.SetBounds(0, 0, w, h);
+            // Always allow a repaint to reflect parameter changes
             _window.RefreshUI();
         }
 
@@ -264,7 +254,7 @@ namespace SR.AnalogGain.UI.Win32
                 }
                 else
                 {
-                    int dpi = SafeGetDpiForWindow(parent);
+                    int dpi = GetDpiForWindow(parent);
                     return dpi / 96f; // e.g., 144/96 = 1.5
                 }
             }
@@ -275,23 +265,9 @@ namespace SR.AnalogGain.UI.Win32
         }
 
         // ---- Native DPI helpers --------------------------------------------
-        private static int SafeGetDpiForWindow(nint hWnd)
-        {
-            try
-            {
-                int dpi = GetDpiForWindow(hWnd);
-                return dpi > 0 ? dpi : 96;
-            }
-            catch { return 96; }
-        }
-
         private static int SafeGetDpiForSystem()
         {
-            try
-            {
-                int dpi = GetDpiForSystem();
-                return dpi > 0 ? dpi : 96;
-            }
+            try { return GetDpiForSystem(); }
             catch { return 96; }
         }
 
