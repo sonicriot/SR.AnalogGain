@@ -34,6 +34,10 @@
     <EmbeddedResource Include="Assets\Switch-on.png" />
   </ItemGroup>
 
+  <PropertyGroup>
+    <PublishAot>true</PublishAot>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="NPlug" Version="0.5.0.380" />
     <PackageReference Include="System.Drawing.Common" Version="9.0.9" />
