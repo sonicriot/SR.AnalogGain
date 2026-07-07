@@ -51,7 +51,7 @@ After downloading, copy the `.vst3` file into your system’s VST3 folder:
 ### Prerequisites
 
 - **Windows** (UI is Win32-specific).
-- [.NET 9 SDK](https://dotnet.microsoft.com/download).
+- [.NET 10 SDK](https://dotnet.microsoft.com/download).
 - A VST3-compatible host (Cubase, Reaper, Studio One, etc.).
 
 ### Build
@@ -59,10 +59,10 @@ After downloading, copy the `.vst3` file into your system’s VST3 folder:
 ```sh
 git clone https://github.com/sonicriot/SR.AnalogGain.git
 cd SR.AnalogGain/src
-dotnet publish -c Release -r win-x64 -p:PublishAot=true
+dotnet publish -c Release -r win-x64
 ```
 
-This will produce a **self-contained, ahead-of-time compiled** `.vst3` plugin in the `SR.AnalogGain/bin/Release/net9.0/win-x64/publish/` folder.
+This will produce a **self-contained, ahead-of-time compiled** `.vst3` plugin in the `SR.AnalogGain/bin/Release/net10.0/win-x64/publish/` folder.
 
 ### Install
 
@@ -80,7 +80,7 @@ Restart your DAW and scan for new plugins.
 1. Insert **AnalogGain** on an audio track.
 2. Adjust the **GAIN** knob to boost or attenuate input signal.
 3. Fine-tune with the **OUTPUT** knob to control final level.
-4. Use the **switches** (LO-Z, PAD, PHASE, HPF) to shape the input response like on a classic preamp.
+4. Use the **switches** (SAT, PAD, PHASE, HPF) to shape the input response like on a classic preamp.
 5. Observe dB readouts and knob pointer for precision control.
 
 ---
