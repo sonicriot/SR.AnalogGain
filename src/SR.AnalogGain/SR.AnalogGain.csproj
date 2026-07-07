@@ -45,7 +45,7 @@
 
   <ItemGroup>
     <PackageReference Include="NPlug" Version="0.4.0.377" />
-    <PackageReference Include="System.Drawing.Common" Version="9.0.9" />
+    <PackageReference Include="System.Drawing.Common" Version="9.0.9" Condition="'$(NPlugIsWindows)' == 'true' OR '$(RuntimeIdentifier)' == 'win-x64'" />
   </ItemGroup>
 
   <PropertyGroup>
