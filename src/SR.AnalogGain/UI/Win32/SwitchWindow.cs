@@ -111,6 +111,12 @@ namespace SR.AnalogGain.UI.Win32
             if (_hwnd != IntPtr.Zero) InvalidateRect(_hwnd, IntPtr.Zero, false);
         }
 
+        public void BringToFront()
+        {
+            if (_hwnd != IntPtr.Zero)
+                SetWindowPos(_hwnd, new IntPtr(-1) /*HWND_TOPMOST*/, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010); // SWP_NOSIZE|SWP_NOMOVE|SWP_NOACTIVATE
+        }
+
         private void EnsureBackBuffer(int w, int h)
         {
             if (_backBuffer == null || _bufW != w || _bufH != h)
