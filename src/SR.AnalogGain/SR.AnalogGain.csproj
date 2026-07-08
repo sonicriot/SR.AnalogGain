@@ -61,7 +61,7 @@
     <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
   </PropertyGroup>
 
-  <Target Name="CopyVST3OnPublish" AfterTargets="Publish" Condition="'$(CopyVST3OnPublish)'=='true'">
+  <Target Name="CopyVST3OnPublish" AfterTargets="NPlugRenameNativeBinaryToVst3" Condition="'$(CopyVST3OnPublish)'=='true'">
     <ItemGroup>
       <PublishedVST3 Include="$(PublishDir)**\*.vst3" />
     </ItemGroup>
