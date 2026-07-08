@@ -14,6 +14,10 @@
     <DefineConstants>MACOS;$(DefineConstants)</DefineConstants>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(RuntimeIdentifier)'=='osx-x64'">
+    <DefineConstants>MACOS;$(DefineConstants)</DefineConstants>
+  </PropertyGroup>
+
 
   <ItemGroup>
     <None Remove="Assets\Bg1024x512.png" />
@@ -54,14 +58,17 @@
 
   <PropertyGroup>
     <CopyVST3OnPublish>true</CopyVST3OnPublish>
+    <!-- Default to Windows VST3 path; override for macOS via RuntimeIdentifier (NPlugIs* is set later in imported targets) -->
     <VST3Dest>$(CommonProgramFiles)\VST3</VST3Dest>
+    <VST3Dest Condition="'$(RuntimeIdentifier)' == 'osx-arm64' OR '$(RuntimeIdentifier)' == 'osx-x64'">$(HOME)/Library/Audio/Plug-Ins/VST3</VST3Dest>
+    <SignMacBundle Condition="'$(RuntimeIdentifier)' == 'osx-arm64' OR '$(RuntimeIdentifier)' == 'osx-x64'">false</SignMacBundle>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
     <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
   </PropertyGroup>
 
-  <Target Name="CopyVST3OnPublish" AfterTargets="NPlugRenameNativeBinaryToVst3" Condition="'$(CopyVST3OnPublish)'=='true'">
+  <Target Name="CopyVST3OnPublish" AfterTargets="NPlugRenameNativeBinaryToVst3" Condition="'$(CopyVST3OnPublish)'=='true' AND '$(NPlugIsWindows)' == 'true'">
     <ItemGroup>
       <PublishedVST3 Include="$(PublishDir)**\*.vst3" />
     </ItemGroup>
@@ -69,5 +76,39 @@
     <Message Text="Copying %(PublishedVST3.Identity) → $(VST3Dest)" Importance="high" Condition="@(PublishedVST3) != ''" />
     <MakeDir Directories="$(VST3Dest)" />
     <Copy SourceFiles="@(PublishedVST3)" DestinationFolder="$(VST3Dest)" SkipUnchangedFiles="true" Condition="@(PublishedVST3) != ''" />
+  </Target>
+
+  <!-- macOS: NPlug publishes a single file named .vst3, but macOS requires a bundle -->
+  <Target Name="CreateMacVst3Bundle" Condition="'$(NPlugIsMacOS)' == 'true' AND '$(PublishAot)' == 'true'" AfterTargets="NPlugRenameNativeBinaryToVst3">
+    <PropertyGroup>
+      <MacBundlePath>$(PublishDir)$(TargetName).vst3</MacBundlePath>
+      <MacBundleBinary>$(MacBundlePath)/Contents/MacOS/$(TargetName)</MacBundleBinary>
+      <MacBinaryTemp>$(PublishDir)$(TargetName).tmpbinary</MacBinaryTemp>
+    </PropertyGroup>
+
+    <!-- Move the single-file .vst3 out of the way so we can create a bundle directory with the same name -->
+    <Move SourceFiles="$(MacBundlePath)" DestinationFiles="$(MacBinaryTemp)" />
+    <MakeDir Directories="$([System.IO.Path]::GetDirectoryName($(MacBundleBinary)))" />
+    <Move SourceFiles="$(MacBinaryTemp)" DestinationFiles="$(MacBundleBinary)" />
+
+    <!-- Bundle metadata -->
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/Info.plist" DestinationFiles="$(MacBundlePath)/Contents/Info.plist" SkipUnchangedFiles="true" />
+    <WriteLinesToFile File="$(MacBundlePath)/Contents/PkgInfo" Lines="BNDL????" Overwrite="true" />
+  </Target>
+
+  <Target Name="SignMacVst3Bundle" Condition="'$(NPlugIsMacOS)' == 'true' AND '$(SignMacBundle)' == 'true'" AfterTargets="CreateMacVst3Bundle">
+    <Exec Command="codesign -s - --deep --force &quot;$(PublishDir)$(TargetName).vst3&quot;" />
+  </Target>
+
+  <Target Name="InstallMacVst3Bundle" Condition="'$(NPlugIsMacOS)' == 'true' AND '$(CopyVST3OnPublish)'=='true'" AfterTargets="SignMacVst3Bundle">
+    <Exec Command="mkdir -p &quot;$(VST3Dest)&quot; &amp;&amp; rm -rf &quot;$(VST3Dest)/$(TargetName).vst3&quot; &amp;&amp; cp -R &quot;$(PublishDir)$(TargetName).vst3&quot; &quot;$(VST3Dest)/&quot;" />
+  </Target>
+
+  <!-- NPlug 0.5.0.380 references a missing NPlugFactoryExportMacOS.cs on macOS.
+       We ship the same entry points in MacFactoryExport.cs, so just remove the package's missing item. -->
+  <Target Name="FixNPlugMacFactoryExport" BeforeTargets="BeforeCompile" Condition="('$(RuntimeIdentifier)' == 'osx-arm64' OR '$(RuntimeIdentifier)' == 'osx-x64')">
+    <ItemGroup>
+      <Compile Remove="%(Compile.Identity)" Condition="%(Compile.Filename) == 'NPlugFactoryExportMacOS'" />
+    </ItemGroup>
   </Target>
 </Project>
