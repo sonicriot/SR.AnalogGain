@@ -227,12 +227,17 @@ namespace SR.AnalogGain.UI.Win32
         {
             if (_hwnd == IntPtr.Zero) return;
 
-            // Inner area excluding outer padding
             int innerW = Math.Max(1, _width - 2 * OuterPad);
             int innerH = Math.Max(1, _height - 2 * OuterPad);
 
-            // Knobs are square; side fits two knobs plus middle gap within inner width
-            int side = Math.Min(innerH, (innerW - 2 * MiddleGap) / 2);
+            // --- Center column ---
+            float ui = Math.Max(0.1f, (float)_width / BaseLogicalW);
+            int centerW = (int)Math.Round((SwitchNativeW + 2 * SwitchHGapPx) * ui);
+            int centerX = (_width - centerW) / 2;
+
+            // Subtract center column + gaps so knob HWNDs never overlap the switch column
+            int usableW = Math.Max(1, innerW - centerW - 2 * MiddleGap);
+            int side = Math.Min(innerH, usableW / 2);
 
             // Left & Right knob positions
             int leftX = OuterPad;
@@ -242,14 +247,6 @@ namespace SR.AnalogGain.UI.Win32
             int rightX = _width - OuterPad - side;
             int rightY = OuterPad;
             _rightKnob.SetBounds(rightX, rightY, side, side);
-
-            // ---- Center column (switch group) ----
-            // Stable UI scale derived only from container width (prevents ratchet)
-            float ui = Math.Max(0.1f, (float)_width / BaseLogicalW);
-
-            // Center column width: base switch width + horizontal padding (independent from previous sizes)
-            int centerW = (int)Math.Round((SwitchNativeW + 2 * SwitchHGapPx) * ui);
-            int centerX = (_width - centerW) / 2;
             int centerY = leftY;
             int centerH = side;
 
@@ -273,10 +270,17 @@ namespace SR.AnalogGain.UI.Win32
             int slot2Y = groupTopY + 2 * slotPitch; // PHASE
             int slot3Y = groupTopY + 3 * slotPitch; // HPF
 
-            _satSwitch.SetBounds(swX, slot0Y, swW, swH);
-            _padSwitch.SetBounds(swX, slot1Y, swW, swH);
-            _phaseSwitch.SetBounds(swX, slot2Y, swW, swH);
-            _hpfSwitch.SetBounds(swX, slot3Y, swW, swH);
+            // Place current switches in the TOP HALF
+            _satSwitch?.SetBounds(swX, slot0Y, swW, swH);
+            _padSwitch?.SetBounds(swX, slot1Y, swW, swH);
+            _phaseSwitch?.SetBounds(swX, slot2Y, swW, swH);
+            _hpfSwitch?.SetBounds(swX, slot3Y, swW, swH);
+
+            // Ensure switches are always on top of knob HWNDs
+            _satSwitch?.BringToFront();
+            _padSwitch?.BringToFront();
+            _phaseSwitch?.BringToFront();
+            _hpfSwitch?.BringToFront();
         }
 
         private void PropagateBackgroundRef()
